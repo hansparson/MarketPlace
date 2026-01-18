@@ -1,0 +1,1248 @@
+openapi: 3.0.3
+info:
+  title: Marketplace API
+  description: |
+    API untuk sistem marketplace dengan fitur:
+    - Manajemen produk
+    - Sistem reseller dengan komisi
+    - Tracking click dan leads
+    - Manajemen payout
+    - Integrasi MinIO untuk upload file
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: support@marketplace.com
+
+servers:
+  - url: http://localhost:8080/api
+    description: Development Server
+  - url: https://api.marketplace.com/api
+    description: Production Server
+
+tags:
+  - name: Auth
+    description: Authentication endpoints
+  - name: Public
+    description: Public endpoints (no authentication required)
+  - name: Admin
+    description: Admin endpoints (requires admin authentication)
+  - name: Client/Reseller
+    description: Client/Reseller endpoints (requires client authentication)
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token yang didapat dari endpoint login
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        api_call_id:
+          type: string
+          example: "API_CALL_1234567890"
+        message_action:
+          type: string
+          example: "PLEASE_TRY_AGAIN"
+        message_data:
+          type: string
+          example: "Invalid request"
+
+    Product:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        price:
+          type: integer
+        category:
+          type: string
+        status:
+          type: string
+          enum: [AVAILABLE, SOLD, INACTIVE]
+        location_name:
+          type: string
+        location_province:
+          type: string
+        location_regency:
+          type: string
+        location_district:
+          type: string
+        location_village:
+          type: string
+        province_code:
+          type: string
+        regency_code:
+          type: string
+        district_code:
+          type: string
+        village_code:
+          type: string
+        commission_amount:
+          type: integer
+        contact_phone:
+          type: string
+        contact_wa:
+          type: string
+        thumbnail_url:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        full_name:
+          type: string
+        phone:
+          type: string
+        role:
+          type: string
+          enum: [SUPER_ADMIN, ADMIN, RESELLER, CLIENT]
+        referral_code:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    Lead:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+        reseller_id:
+          type: string
+          format: uuid
+        visitor_name:
+          type: string
+        visitor_phone:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    Payout:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        reseller_id:
+          type: string
+          format: uuid
+        amount:
+          type: integer
+        proof_object_key:
+          type: string
+        notes:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+paths:
+  # ==================== PUBLIC ENDPOINTS ====================
+  /categories:
+    get:
+      tags:
+        - Public
+      summary: List semua kategori produk
+      description: Mendapatkan daftar semua kategori produk yang tersedia
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_call_id:
+                    type: string
+                  message_action:
+                    type: string
+                    example: "CATEGORIES_RETRIEVED"
+                  message_data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        category:
+                          type: string
+                        product_count:
+                          type: integer
+
+  /products:
+    get:
+      tags:
+        - Public
+      summary: List produk dengan filter
+      description: Mendapatkan daftar produk dengan opsi filter dan pagination
+      parameters:
+        - name: category
+          in: query
+          description: Filter berdasarkan kategori
+          schema:
+            type: string
+        - name: search
+          in: query
+          description: Pencarian berdasarkan judul atau deskripsi
+          schema:
+            type: string
+        - name: province
+          in: query
+          description: Filter berdasarkan kode provinsi
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Jumlah data per halaman (default 20)
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          description: Offset untuk pagination (default 0)
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_call_id:
+                    type: string
+                  message_action:
+                    type: string
+                    example: "PRODUCTS_RETRIEVED"
+                  message_data:
+                    type: object
+                    properties:
+                      products:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Product'
+                      total:
+                        type: integer
+
+  /products/{id}:
+    get:
+      tags:
+        - Public
+      summary: Get detail produk
+      description: Mendapatkan detail lengkap produk termasuk assets
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Product ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_call_id:
+                    type: string
+                  message_action:
+                    type: string
+                    example: "PRODUCT_RETRIEVED"
+                  message_data:
+                    type: object
+                    properties:
+                      product:
+                        $ref: '#/components/schemas/Product'
+                      assets:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                              format: uuid
+                            asset_url:
+                              type: string
+                            asset_type:
+                              type: string
+                              enum: [IMAGE, VIDEO]
+        '404':
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /track/click:
+    get:
+      tags:
+        - Public
+      summary: Track click produk
+      description: Mencatat click pada produk melalui link referral
+      parameters:
+        - name: product_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: ref
+          in: query
+          required: true
+          description: Reseller ID atau referral code
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Click tracked successfully
+
+  /leads:
+    post:
+      tags:
+        - Public
+      summary: Submit lead dari visitor
+      description: Visitor submit informasi kontak (lead) untuk produk tertentu
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - product_id
+                - ref_code
+                - phone
+              properties:
+                product_id:
+                  type: string
+                  format: uuid
+                ref_code:
+                  type: string
+                  description: Referral code atau reseller ID
+                phone:
+                  type: string
+                name:
+                  type: string
+      responses:
+        '201':
+          description: Lead created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_call_id:
+                    type: string
+                  message_action:
+                    type: string
+                    example: "LEAD_SUBMITTED"
+                  message_data:
+                    $ref: '#/components/schemas/Lead'
+
+  # ==================== LOCATION API ====================
+  /provinces:
+    get:
+      tags:
+        - Public
+      summary: Get daftar provinsi
+      description: Mendapatkan daftar provinsi dari API Wilayah Indonesia
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_call_id:
+                    type: string
+                  message_action:
+                    type: string
+                  message_data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        code:
+                          type: string
+                        name:
+                          type: string
+
+  /regencies/{code}:
+    get:
+      tags:
+        - Public
+      summary: Get daftar kabupaten/kota
+      description: Mendapatkan daftar kabupaten/kota berdasarkan kode provinsi
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: Kode provinsi
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+
+  /districts/{code}:
+    get:
+      tags:
+        - Public
+      summary: Get daftar kecamatan
+      description: Mendapatkan daftar kecamatan berdasarkan kode kabupaten/kota
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: Kode kabupaten/kota
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+
+  /villages/{code}:
+    get:
+      tags:
+        - Public
+      summary: Get daftar kelurahan/desa
+      description: Mendapatkan daftar kelurahan/desa berdasarkan kode kecamatan
+      parameters:
+        - name: code
+          in: path
+          required: true
+          description: Kode kecamatan
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+
+  # ==================== AUTH ENDPOINTS ====================
+  /auth/login/admin:
+    post:
+      tags:
+        - Auth
+      summary: Admin login
+      description: Login untuk admin dan super admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "admin@marketplace.com"
+                password:
+                  type: string
+                  format: password
+                  example: "admin123"
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_call_id:
+                    type: string
+                  message_action:
+                    type: string
+                    example: "LOGIN_SUCCESS"
+                  message_data:
+                    type: object
+                    properties:
+                      token:
+                        type: string
+                        description: JWT token
+                      role:
+                        type: string
+                      user:
+                        $ref: '#/components/schemas/User'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/login/reseller:
+    post:
+      tags:
+        - Auth
+      summary: Reseller login
+      description: Login untuk reseller
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - phone
+                - password
+              properties:
+                phone:
+                  type: string
+                  example: "081234567890"
+                password:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_call_id:
+                    type: string
+                  message_action:
+                    type: string
+                    example: "LOGIN_SUCCESS"
+                  message_data:
+                    type: object
+                    properties:
+                      token:
+                        type: string
+                      role:
+                        type: string
+                      user:
+                        $ref: '#/components/schemas/User'
+
+  # ==================== ADMIN ENDPOINTS ====================
+  /admin/dashboard:
+    get:
+      tags:
+        - Admin
+      summary: Get dashboard statistics
+      description: Mendapatkan statistik dashboard untuk admin
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_call_id:
+                    type: string
+                  message_action:
+                    type: string
+                    example: "DASHBOARD_DATA"
+                  message_data:
+                    type: object
+                    properties:
+                      total_products:
+                        type: integer
+                      active_products:
+                        type: integer
+                      total_leads:
+                        type: integer
+                      total_resellers:
+                        type: integer
+
+  /admin/products:
+    get:
+      tags:
+        - Admin
+      summary: List all products (admin)
+      description: Admin mendapatkan semua produk dengan pagination
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Success
+
+    post:
+      tags:
+        - Admin
+      summary: Create new product
+      description: Admin membuat produk baru
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - price
+                - category
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                price:
+                  type: integer
+                category:
+                  type: string
+                location_name:
+                  type: string
+                location_province:
+                  type: string
+                location_regency:
+                  type: string
+                location_district:
+                  type: string
+                location_village:
+                  type: string
+                province_code:
+                  type: string
+                regency_code:
+                  type: string
+                district_code:
+                  type: string
+                village_code:
+                  type: string
+                commission_amount:
+                  type: integer
+                contact_phone:
+                  type: string
+                contact_wa:
+                  type: string
+      responses:
+        '201':
+          description: Product created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_call_id:
+                    type: string
+                  message_action:
+                    type: string
+                    example: "PRODUCT_CREATED"
+                  message_data:
+                    $ref: '#/components/schemas/Product'
+
+  /admin/products/{id}:
+    get:
+      tags:
+        - Admin
+      summary: Get product detail (admin)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+
+    put:
+      tags:
+        - Admin
+      summary: Update product
+      description: Admin update informasi produk
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                price:
+                  type: integer
+                category:
+                  type: string
+                status:
+                  type: string
+                  enum: [AVAILABLE, SOLD, INACTIVE]
+                location_name:
+                  type: string
+                commission_amount:
+                  type: integer
+                contact_phone:
+                  type: string
+                contact_wa:
+                  type: string
+      responses:
+        '200':
+          description: Product updated successfully
+
+    delete:
+      tags:
+        - Admin
+      summary: Delete product
+      description: Admin hapus produk (soft delete)
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Product deleted successfully
+
+  /admin/products/assets:
+    post:
+      tags:
+        - Admin
+      summary: Upload product assets
+      description: Upload gambar atau video untuk produk (mendukung multiple files)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - product_id
+                - files
+              properties:
+                product_id:
+                  type: string
+                  format: uuid
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: Multiple image/video files
+      responses:
+        '201':
+          description: Assets uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_call_id:
+                    type: string
+                  message_action:
+                    type: string
+                    example: "ASSETS_UPLOADED"
+                  message_data:
+                    type: object
+                    properties:
+                      uploaded_count:
+                        type: integer
+                      assets:
+                        type: array
+                        items:
+                          type: object
+
+  /admin/products/assets/{id}:
+    delete:
+      tags:
+        - Admin
+      summary: Delete product asset
+      description: Hapus asset (gambar/video) dari produk
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Asset deleted successfully
+
+  /admin/products/{id}/leads:
+    get:
+      tags:
+        - Admin
+      summary: Get product leads
+      description: Admin mendapatkan semua leads untuk produk tertentu
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Product ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_call_id:
+                    type: string
+                  message_action:
+                    type: string
+                  message_data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        visitor_name:
+                          type: string
+                        visitor_phone:
+                          type: string
+                        reseller_id:
+                          type: string
+                          format: uuid
+                        reseller_name:
+                          type: string
+                        referral_code:
+                          type: string
+                        created_at:
+                          type: string
+
+  /admin/products/{id}/sold:
+    post:
+      tags:
+        - Admin
+      summary: Mark product as sold
+      description: Admin menandai produk sebagai terjual dan menetapkan komisi ke reseller
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - lead_id
+              properties:
+                lead_id:
+                  type: string
+                  format: uuid
+                  description: Lead ID yang berhasil konversi
+      responses:
+        '200':
+          description: Product marked as sold and commission assigned
+
+  /admin/resellers:
+    get:
+      tags:
+        - Admin
+      summary: List all resellers
+      description: Admin mendapatkan daftar semua reseller
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_call_id:
+                    type: string
+                  message_action:
+                    type: string
+                  message_data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+
+    post:
+      tags:
+        - Admin
+      summary: Create new reseller
+      description: Admin membuat akun reseller baru
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - full_name
+                - phone
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                full_name:
+                  type: string
+                phone:
+                  type: string
+                password:
+                  type: string
+                  format: password
+      responses:
+        '201':
+          description: Reseller created successfully
+
+  /admin/resellers/{id}:
+    get:
+      tags:
+        - Admin
+      summary: Get reseller detail with stats
+      description: Admin mendapatkan detail reseller beserta statistik
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_call_id:
+                    type: string
+                  message_action:
+                    type: string
+                  message_data:
+                    type: object
+                    properties:
+                      reseller:
+                        $ref: '#/components/schemas/User'
+                      stats:
+                        type: object
+                        properties:
+                          total_commission:
+                            type: integer
+                          total_paid:
+                            type: integer
+                          available_balance:
+                            type: integer
+                          total_clicks:
+                            type: integer
+                          total_leads:
+                            type: integer
+
+    put:
+      tags:
+        - Admin
+      summary: Update reseller
+      description: Admin update informasi reseller
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                full_name:
+                  type: string
+                phone:
+                  type: string
+                is_active:
+                  type: boolean
+      responses:
+        '200':
+          description: Reseller updated successfully
+
+  /admin/payouts:
+    get:
+      tags:
+        - Admin
+      summary: List all payouts
+      description: Admin mendapatkan semua riwayat payout
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_call_id:
+                    type: string
+                  message_action:
+                    type: string
+                  message_data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Payout'
+
+    post:
+      tags:
+        - Admin
+      summary: Create payout
+      description: Admin membuat payout untuk reseller
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - reseller_id
+                - amount
+              properties:
+                reseller_id:
+                  type: string
+                  format: uuid
+                amount:
+                  type: integer
+                  description: Jumlah payout dalam rupiah
+                notes:
+                  type: string
+                  description: Catatan tambahan
+                proof:
+                  type: string
+                  format: binary
+                  description: Bukti transfer (gambar)
+      responses:
+        '201':
+          description: Payout created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_call_id:
+                    type: string
+                  message_action:
+                    type: string
+                    example: "PAYOUT_CREATED"
+                  message_data:
+                    $ref: '#/components/schemas/Payout'
+
+  # ==================== CLIENT/RESELLER ENDPOINTS ====================
+  /client/products/{id}/share:
+    get:
+      tags:
+        - Client/Reseller
+      summary: Get product share URL
+      description: Reseller mendapatkan URL share dengan referral code
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_call_id:
+                    type: string
+                  message_action:
+                    type: string
+                    example: "SHARE_URL_GENERATED"
+                  message_data:
+                    type: object
+                    properties:
+                      share_url:
+                        type: string
+                        example: "https://marketplace.com/p/product-id?ref=REFERRAL123"
+
+  /client/products/{id}/analytics:
+    get:
+      tags:
+        - Client/Reseller
+      summary: Get product analytics
+      description: Reseller mendapatkan analytics untuk produk tertentu
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_call_id:
+                    type: string
+                  message_action:
+                    type: string
+                  message_data:
+                    type: object
+                    properties:
+                      total_clicks:
+                        type: integer
+                      unique_visitors:
+                        type: integer
+
+  /client/stats:
+    get:
+      tags:
+        - Client/Reseller
+      summary: Get reseller dashboard stats
+      description: Reseller mendapatkan statistik dashboard pribadi
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_call_id:
+                    type: string
+                  message_action:
+                    type: string
+                    example: "STATS_RETRIEVED"
+                  message_data:
+                    type: object
+                    properties:
+                      total_leads:
+                        type: integer
+                      active_products:
+                        type: integer
+                      total_commission:
+                        type: integer
+                      total_paid:
+                        type: integer
+                      available_balance:
+                        type: integer
+                      total_clicks:
+                        type: integer
+                      referral_code:
+                        type: string
+                      recent_activities:
+                        type: array
+                        items:
+                          type: object
+
+  /client/payouts:
+    get:
+      tags:
+        - Client/Reseller
+      summary: Get my payout history
+      description: Reseller mendapatkan riwayat payout pribadi
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_call_id:
+                    type: string
+                  message_action:
+                    type: string
+                    example: "PAYOUTS_RETRIEVED"
+                  message_data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Payout'

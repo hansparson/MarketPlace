@@ -1,0 +1,117 @@
+basePath: /api
+definitions:
+  handler.LoginRequest:
+    properties:
+      email:
+        example: admin@marketplace.com
+        type: string
+      password:
+        example: admin123
+        type: string
+    type: object
+  handler.ResellerLoginRequest:
+    properties:
+      password:
+        example: reseller123
+        type: string
+      phone:
+        example: "081234567890"
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: support@marketplace.com
+    name: API Support
+  description: |-
+    API untuk sistem marketplace dengan fitur reseller, tracking, dan komisi
+
+    ## Fitur Utama:
+    - Manajemen produk (CRUD)
+    - Sistem reseller dengan kode referral
+    - Tracking click dan leads
+    - Perhitungan komisi otomatis
+    - Manajemen payout
+    - Upload file ke MinIO
+
+    ## Authentication:
+    Login sebagai Admin atau Reseller untuk mendapatkan JWT token, kemudian gunakan token tersebut di header `Authorization: Bearer <token>`
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  title: Marketplace API
+  version: "1.0"
+paths:
+  /auth/login/admin:
+    post:
+      consumes:
+      - application/json
+      description: Login untuk admin dan super admin
+      parameters:
+      - description: Login credentials
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Login successful
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Admin login
+      tags:
+      - Auth
+  /auth/login/reseller:
+    post:
+      consumes:
+      - application/json
+      description: Login untuk reseller
+      parameters:
+      - description: Login credentials
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/handler.ResellerLoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Login successful
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Bad request
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties: true
+            type: object
+      summary: Reseller login
+      tags:
+      - Auth
+securityDefinitions:
+  BearerAuth:
+    description: Type "Bearer" followed by a space and JWT token.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
