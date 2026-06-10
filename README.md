@@ -1,6 +1,6 @@
 # 🛒 Gostar – Full-Stack C2C Marketplace Platform
 
-A secure, containerized Customer-to-Customer (C2C) e-commerce marketplace and commission-tracking engine. The system is built with a **Golang (Echo)** backend, a **React (TypeScript & Vite)** web administration dashboard, a **Flutter** mobile client app codebase, and **MinIO (S3)** object storage, fully orchestrated via **Docker Compose** and load-balanced using **Nginx**.
+A secure, containerized Customer-to-Customer (C2C) e-commerce marketplace and commission-tracking engine. The system is built with a **Golang (Echo)** backend, a **React (TypeScript & Vite)** web administration dashboard, **two Flutter** mobile client applications, and **MinIO (S3)** object storage, fully orchestrated via **Docker Compose** and load-balanced using **Nginx**.
 
 ---
 
@@ -9,9 +9,11 @@ A secure, containerized Customer-to-Customer (C2C) e-commerce marketplace and co
 *   **Echo Backend Engine:** Robust and low-latency API handlers organized under clean architecture guidelines.
 *   **Payment Gateway Integration:** Integrated payment processing APIs (including DANA e-wallet) for secure client payment loops.
 *   **Commission & Reseller Tracking:** Implements structured product referral loops, automatically allocating commission credits.
-*   **Multi-Client Support:** Built to power a responsive React dashboard for store administrators and resellers, as well as a native mobile client app codebase.
+*   **Multi-Client Support:** Built to power a responsive React dashboard for store administrators and resellers, as well as native mobile client apps.
 *   **S3-Compatible Media Storage:** Integrates with MinIO for hosting product images and assets.
 *   **Containerized Microservices:** Standardized local orchestrations with Docker Compose and Nginx reverse proxy load-balancers.
+*   **Unified Developer CLI:** Configured with a root Makefile to automate local environment setup, DB migrations, testing, and audits.
+*   **Automated CI/CD:** Integrated GitHub Actions workflow to run quality control audits and unit tests on every pull request/push.
 
 ---
 
@@ -41,20 +43,24 @@ graph TD
     *   `/src/pages/admin` - Private dashboard for platform administrators.
     *   `/src/pages/reseller` - Portal for affiliate resellers tracking commissions and metrics.
     *   `/src/pages/public` - Public pages (Catalog, Product Details, Auth).
+*   **`/gostar-id`** - Flutter mobile application codebase for resellers/agents.
+*   **`/gostar_mart`** - Flutter mobile application codebase for marketplace customers.
 *   **`/nginx`** - Reverse proxy configuration maps and routing layers.
 *   **`/docs`** - Comprehensive API definitions (Postman collections, Swagger specs) and troubleshooting guides.
 *   **`/scripts`** - Automated shell scripts for DB migration, seeding, and MinIO storage configurations.
+*   **`/.github/workflows`** - GitHub Actions CI/CD workflows for backend and frontend linting/testing.
 
 ---
 
 ## 🛠️ Technology Stack
 
-*   **Backend:** Go (Golang), Echo Framework, sqlc, Zerolog
+*   **Backend:** Go (Golang 1.26+), Echo Framework, sqlc, Zerolog
 *   **Frontend:** React, Vite, TypeScript, TailwindCSS, Lucide React
+*   **Mobile Apps:** Flutter, Dart
 *   **Databases:** PostgreSQL, Redis
 *   **Storage:** MinIO (S3-compatible)
 *   **API Docs:** Swagger (Swaggo)
-*   **DevOps:** Docker, Docker Compose, Nginx
+*   **DevOps:** Docker, Docker Compose, Nginx, GitHub Actions
 
 ---
 
@@ -62,38 +68,48 @@ graph TD
 
 ### 1. Prerequisites
 *   Docker & Docker Compose installed
-*   Go 1.18+ (for manual backend setup)
-*   NodeJS 16+ (for manual frontend setup)
+*   Go 1.25+ (for manual local backend development)
+*   NodeJS 20+ (for manual local frontend development)
+*   Flutter SDK (for mobile development)
 
-### 2. Run the Entire Stack (Docker Compose)
-The easiest way to boot the backend, database, cache, MinIO storage, and Nginx proxy is via Docker Compose:
+### 2. Quick Commands (Makefile)
+The repository provides a root `Makefile` to simplify all common development workflows.
+
+| Command | Description |
+| :--- | :--- |
+| `make dev` | Start Postgres, Redis, and MinIO container infrastructure locally |
+| `make backend-run` | Launch the Golang backend server locally (development environment) |
+| `make frontend-run` | Launch the React/Vite development server locally |
+| `make prod-up` | Build and start the entire stack (including Nginx) in production Docker mode |
+| `make prod-down` | Stop and tear down all production Docker containers |
+| `make migrate-up` | Run Postgres database migrations |
+| `make migrate-down` | Roll back the last database migration |
+| `make db-shell` | Open a `psql` interactive shell inside the Postgres container |
+| `make flutter-dev` | Run the GostarID Flutter app pointing to local backend |
+| `make flutter-prod` | Run the GostarID Flutter app pointing to production backend |
+| `make test` | Run backend unit tests |
+| `make audit` | Run all QA checks (linter, vulnerabilities, typechecks) for backend/frontend/mobile |
+
+---
+
+## 🧪 Code Quality & CI/CD
+
+To maintain high code quality standards, the repository runs automated linting and security scans.
+
+### Local Quality Checks
+You can run static code analysis, vulnerability checks, and typechecks locally:
 ```bash
-docker-compose up -d
+# Run tests
+make test
+
+# Run code audit (Go staticcheck + govulncheck, React tsc, Flutter analyze)
+make audit
 ```
 
-### 3. Manual Local Development
-
-#### A. Backend Setup
-1. Navigate to `/backend` directory:
-   ```bash
-   cd backend
-   ```
-2. Configure credentials in `.env` (use `.env.example` as a template).
-3. Run migrations and start the Go server:
-   ```bash
-   go run cmd/server/main.go
-   ```
-
-#### B. Frontend Setup
-1. Navigate to `/frontend` directory:
-   ```bash
-   cd frontend
-   ```
-2. Install packages and boot the Vite development server:
-   ```bash
-   npm install
-   npm run dev
-   ```
+### GitHub Actions CI/CD
+Our GitHub Actions pipeline (`CI (Test & Audit)`) runs on every push and pull request to the `main` branch:
+*   **Backend Job:** Vets Go code, runs static analysis (`staticcheck`), scans for security vulnerabilities (`govulncheck`), and executes unit tests.
+*   **Frontend Job:** Installs dependencies and runs TypeScript compilation checks (`tsc --noEmit`) to verify build safety.
 
 ---
 
