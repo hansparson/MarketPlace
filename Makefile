@@ -6,7 +6,8 @@
 
 .PHONY: help dev infra-up infra-down backend-run frontend-run \
         prod-up prod-down prod-build prod-logs prod-ps \
-        migrate-up migrate-down db-shell flutter-dev flutter-prod
+        migrate-up migrate-down db-shell flutter-dev flutter-prod \
+        test audit
 
 # ─── Default ──────────────────────────────────────────────────────────────────
 help:
@@ -37,6 +38,10 @@ help:
 	@echo "  FLUTTER:"
 	@echo "    make flutter-dev   Run Flutter app (development)"
 	@echo "    make flutter-prod  Run Flutter app (production API)"
+	@echo ""
+	@echo "  TEST & AUDIT:"
+	@echo "    make test          Run backend unit tests"
+	@echo "    make audit         Run quality control checks"
 	@echo ""
 
 # ─── Development ──────────────────────────────────────────────────────────────
@@ -130,3 +135,16 @@ flutter-build-prod:
 	@echo "📦 Building production APK..."
 	cd gostar-id && flutter build apk --dart-define=PRODUCTION=true --release
 	@echo "✅ APK: gostar-id/build/app/outputs/flutter-apk/app-release.apk"
+
+# ─── Quality Control & Testing ────────────────────────────────────────────────
+
+test: ## Run unit tests
+	@echo "🧪 Running backend unit tests..."
+	cd backend && go test -v ./...
+
+audit: ## Run quality control checks
+	@echo "🔍 Running audit..."
+	cd backend && go mod verify
+	cd backend && go vet ./...
+	cd backend && go run honnef.co/go/tools/cmd/staticcheck@latest -checks="all,-ST1000,-ST1003,-ST1020,-ST1021,-ST1023,-S1017,-SA1019,-SA9003" ./...
+	cd backend && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
