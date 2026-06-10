@@ -33,6 +33,30 @@ graph TD
 
 ---
 
+## 📸 User Interface Preview
+
+Here is a visual preview of the platform dashboards and mobile applications:
+
+### 🖥️ Web Admin & Reseller Dashboards (React)
+| Admin Dashboard | Reseller Portal |
+| :---: | :---: |
+| ![Admin Dashboard](docs/screenshots/website_01.png) | ![Reseller Portal](docs/screenshots/website_02.png) |
+| *Platform management, reseller approvals, and inventory control* | *Affiliate sales metrics, referral links, and commission withdrawals* |
+
+### 📱 GostarID Mobile Application (Reseller Client - Flutter)
+| Dashboard Screen | Sharing Screen | Wallet Screen | Analytics Screen |
+| :---: | :---: | :---: | :---: |
+| ![GostarID 1](docs/screenshots/gostar_id_01.png) | ![GostarID 2](docs/screenshots/gostar_id_02.png) | ![GostarID 3](docs/screenshots/gostar_id_03.png) | ![GostarID 4](docs/screenshots/gostar_id_04.png) |
+| *On-the-go lead submission* | *Link sharing & tracking* | *Wallet & balances* | *Performance metrics* |
+
+### 📱 Gostar Mart Mobile Application (Customer Client - Flutter)
+| Home Screen | Product Details |
+| :---: | :---: |
+| ![Gostar Mart 1](docs/screenshots/gostar_mart_01.png) | ![Gostar Mart 2](docs/screenshots/gostar_mart_02.png) |
+| *Customer shopping interface* | *Product search & checkouts* |
+
+---
+
 ## 📁 Repository Directory Structure
 
 *   **`/backend`** - Go source code (Echo framework)
