@@ -29,7 +29,8 @@ jobs:
         run: cd backend && go vet ./...
 
       - name: Run Staticcheck
-        run: cd backend && go run honnef.co/go/tools/cmd/staticcheck@latest -checks="SA*,-SA1019,-SA9003" ./...
+        run: |
+          cd backend && go run honnef.co/go/tools/cmd/staticcheck@latest -checks="SA*,-SA1019,-SA9003" ./...
 
       - name: Run Govulncheck
         run: cd backend && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
@@ -59,4 +60,5 @@ jobs:
         run: cd frontend && npx tsc --noEmit
 
       - name: Dependency Vulnerability Audit
-        run: cd frontend && (npm audit || echo "⚠️ Warning: Vulnerabilities found in frontend dependencies")
+        run: |
+          cd frontend && (npm audit || echo "⚠️ Warning: Vulnerabilities found in frontend dependencies")
