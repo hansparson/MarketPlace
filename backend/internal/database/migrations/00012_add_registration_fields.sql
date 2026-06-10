@@ -1,0 +1,25 @@
+-- +goose Up
+-- +goose StatementBegin
+ALTER TABLE members ADD COLUMN IF NOT EXISTS username VARCHAR(100) UNIQUE NULL;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS nik VARCHAR(20) UNIQUE NULL;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS profile_image TEXT NULL;
+ALTER TABLE members ADD COLUMN IF NOT EXISTS ktp_image TEXT NULL;
+
+ALTER TABLE resellers ADD COLUMN IF NOT EXISTS username VARCHAR(100) UNIQUE NULL;
+ALTER TABLE resellers ADD COLUMN IF NOT EXISTS nik VARCHAR(20) UNIQUE NULL;
+ALTER TABLE resellers ADD COLUMN IF NOT EXISTS profile_image TEXT NULL;
+ALTER TABLE resellers ADD COLUMN IF NOT EXISTS ktp_image TEXT NULL;
+-- +goose StatementEnd
+
+-- +goose Down
+-- +goose StatementBegin
+ALTER TABLE resellers DROP COLUMN IF EXISTS username;
+ALTER TABLE resellers DROP COLUMN IF EXISTS nik;
+ALTER TABLE resellers DROP COLUMN IF EXISTS profile_image;
+ALTER TABLE resellers DROP COLUMN IF EXISTS ktp_image;
+
+ALTER TABLE members DROP COLUMN IF EXISTS username;
+ALTER TABLE members DROP COLUMN IF EXISTS nik;
+ALTER TABLE members DROP COLUMN IF EXISTS profile_image;
+ALTER TABLE members DROP COLUMN IF EXISTS ktp_image;
+-- +goose StatementEnd

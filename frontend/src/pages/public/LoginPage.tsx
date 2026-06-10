@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import client from '../api/client';
-import Navbar from '../components/Navbar';
+import client from '../../api/client';
+import Navbar from '../../components/Navbar';
 
 interface LoginPageProps {
-    type: 'admin' | 'reseller';
+    type: 'admin' | 'reseller' | 'member';
 }
 
 const LoginPage = ({ type }: LoginPageProps) => {
@@ -15,10 +15,12 @@ const LoginPage = ({ type }: LoginPageProps) => {
     const [loading, setLoading] = useState(false);
 
     const isReseller = type === 'reseller';
-    const title = isReseller ? 'Reseller Login' : 'Admin Login';
-    const identifierLabel = isReseller ? 'Phone Number' : 'Email Address';
-    const identifierPlaceholder = isReseller ? '0812...' : 'admin@example.com';
-    const endpoint = isReseller ? '/auth/login/reseller' : '/auth/login/admin';
+    const isMember = type === 'member';
+    
+    const title = isMember ? 'Member Login' : isReseller ? 'Reseller Login' : 'Admin Login';
+    const identifierLabel = (isReseller || isMember) ? 'Phone Number' : 'Email Address';
+    const identifierPlaceholder = (isReseller || isMember) ? '0812...' : 'admin@example.com';
+    const endpoint = isMember ? '/auth/login/member' : isReseller ? '/auth/login/reseller' : '/auth/login/admin';
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -26,7 +28,7 @@ const LoginPage = ({ type }: LoginPageProps) => {
         setLoading(true);
 
         try {
-            const payload = isReseller
+            const payload = (isReseller || isMember)
                 ? { phone: identifier, password }
                 : { email: identifier, password };
 
@@ -69,8 +71,8 @@ const LoginPage = ({ type }: LoginPageProps) => {
                 <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-2xl shadow-lg border border-gray-100">
                     <div>
                         <div className="flex justify-center mb-4">
-                            <div className={`p-4 rounded-full ${isReseller ? 'bg-green-100' : 'bg-blue-100'}`}>
-                                <svg className={`w-12 h-12 ${isReseller ? 'text-green-600' : 'text-blue-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <div className={`p-4 rounded-full ${isMember ? 'bg-indigo-100' : isReseller ? 'bg-green-100' : 'bg-blue-100'}`}>
+                                <svg className={`w-12 h-12 ${isMember ? 'text-indigo-600' : isReseller ? 'text-green-600' : 'text-blue-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                                 </svg>
                             </div>
@@ -79,9 +81,11 @@ const LoginPage = ({ type }: LoginPageProps) => {
                             {title}
                         </h2>
                         <p className="mt-2 text-center text-sm text-gray-600">
-                            {isReseller
-                                ? "Enter your phone number to access reseller features."
-                                : "Secure area for administrators."}
+                            {isMember
+                                ? "Enter your phone number to access leader features."
+                                : isReseller
+                                    ? "Enter your phone number to access reseller features."
+                                    : "Secure area for administrators."}
                         </p>
                     </div>
                     <form className="mt-8 space-y-6" onSubmit={handleLogin}>
@@ -130,9 +134,11 @@ const LoginPage = ({ type }: LoginPageProps) => {
                                 disabled={loading}
                                 className={`group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white transition-all ${loading
                                     ? 'bg-gray-400 cursor-not-allowed'
-                                    : isReseller
-                                        ? 'bg-green-600 hover:bg-green-700 hover:shadow-lg'
-                                        : 'bg-blue-600 hover:bg-blue-700 hover:shadow-lg'
+                                    : isMember
+                                        ? 'bg-indigo-600 hover:bg-indigo-700 hover:shadow-lg'
+                                        : isReseller
+                                            ? 'bg-green-600 hover:bg-green-700 hover:shadow-lg'
+                                            : 'bg-blue-600 hover:bg-blue-700 hover:shadow-lg'
                                     }`}
                             >
                                 {loading ? (

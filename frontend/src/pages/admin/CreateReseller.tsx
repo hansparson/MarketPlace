@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeftIcon, UserPlusIcon } from '@heroicons/react/24/outline';
-import client from '../api/client';
+import client from '../../api/client';
 
 const CreateReseller = () => {
     const navigate = useNavigate();

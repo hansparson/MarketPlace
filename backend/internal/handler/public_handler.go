@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -10,22 +11,28 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/user/marketplace-backend/internal/cache"
 	"github.com/user/marketplace-backend/internal/database/db"
+	"github.com/user/marketplace-backend/internal/notification"
 	"github.com/user/marketplace-backend/internal/storage"
 	"github.com/user/marketplace-backend/pkg/apperrors"
+	"github.com/user/marketplace-backend/pkg/dana"
 	"github.com/user/marketplace-backend/pkg/response"
 )
 
 type PublicHandler struct {
-	Queries *db.Queries
-	Storage *storage.MinioStorage
-	Cache   *cache.Cache
+	Queries      *db.Queries
+	Storage      *storage.MinioStorage
+	Cache        *cache.Cache
+	DanaClient   *dana.Client
+	Notification *notification.Service
 }
 
-func NewPublicHandler(queries *db.Queries, storage *storage.MinioStorage, cache *cache.Cache) *PublicHandler {
+func NewPublicHandler(queries *db.Queries, storage *storage.MinioStorage, cache *cache.Cache, danaClient *dana.Client, fcmService *notification.Service) *PublicHandler {
 	return &PublicHandler{
-		Queries: queries,
-		Storage: storage,
-		Cache:   cache,
+		Queries:      queries,
+		Storage:      storage,
+		Cache:        cache,
+		DanaClient:   danaClient,
+		Notification: fcmService,
 	}
 }
 
@@ -37,11 +44,15 @@ func convertListProductRow(p db.ListProductsRow) map[string]interface{} {
 		"title":             p.Title,
 		"description":       p.Description,
 		"price":             p.Price,
+		"stock":             p.Stock,
 		"status":            p.Status,
 		"created_by":        p.CreatedBy,
 		"created_at":        p.CreatedAt,
-		"updated_at":        p.UpdatedAt,
-		"commission_amount": p.CommissionAmount,
+		"updated_at":                 p.UpdatedAt,
+		"commission_amount":          p.CommissionAmount,
+		"member_commission_amount":   p.MemberCommissionAmount,
+		"reseller_commission_amount": p.ResellerCommissionAmount,
+
 		"location_name":     p.LocationName.String,
 		"latitude":          p.Latitude.String,
 		"longitude":         p.Longitude.String,
@@ -50,6 +61,7 @@ func convertListProductRow(p db.ListProductsRow) map[string]interface{} {
 		"district":          p.District.String,
 		"village":           p.Village.String,
 		"thumbnail_url":     p.ThumbnailUrl,
+		"specifications":    p.Specifications,
 	}
 }
 
@@ -61,11 +73,15 @@ func convertSearchProductRow(p db.SearchProductsRow) map[string]interface{} {
 		"title":             p.Title,
 		"description":       p.Description,
 		"price":             p.Price,
+		"stock":             p.Stock,
 		"status":            p.Status,
 		"created_by":        p.CreatedBy,
 		"created_at":        p.CreatedAt,
-		"updated_at":        p.UpdatedAt,
-		"commission_amount": p.CommissionAmount,
+		"updated_at":                 p.UpdatedAt,
+		"commission_amount":          p.CommissionAmount,
+		"member_commission_amount":   p.MemberCommissionAmount,
+		"reseller_commission_amount": p.ResellerCommissionAmount,
+
 		"location_name":     p.LocationName.String,
 		"latitude":          p.Latitude.String,
 		"longitude":         p.Longitude.String,
@@ -74,6 +90,7 @@ func convertSearchProductRow(p db.SearchProductsRow) map[string]interface{} {
 		"district":          p.District.String,
 		"village":           p.Village.String,
 		"thumbnail_url":     p.ThumbnailUrl,
+		"specifications":    p.Specifications,
 	}
 }
 
@@ -85,11 +102,15 @@ func convertCategoryProductRow(p db.ListProductsByCategoryRow) map[string]interf
 		"title":             p.Title,
 		"description":       p.Description,
 		"price":             p.Price,
+		"stock":             p.Stock,
 		"status":            p.Status,
 		"created_by":        p.CreatedBy,
 		"created_at":        p.CreatedAt,
-		"updated_at":        p.UpdatedAt,
-		"commission_amount": p.CommissionAmount,
+		"updated_at":                 p.UpdatedAt,
+		"commission_amount":          p.CommissionAmount,
+		"member_commission_amount":   p.MemberCommissionAmount,
+		"reseller_commission_amount": p.ResellerCommissionAmount,
+
 		"location_name":     p.LocationName.String,
 		"latitude":          p.Latitude.String,
 		"longitude":         p.Longitude.String,
@@ -98,6 +119,7 @@ func convertCategoryProductRow(p db.ListProductsByCategoryRow) map[string]interf
 		"district":          p.District.String,
 		"village":           p.Village.String,
 		"thumbnail_url":     p.ThumbnailUrl,
+		"specifications":    p.Specifications,
 	}
 }
 
@@ -209,8 +231,11 @@ func (h *PublicHandler) GetProduct(c echo.Context) error {
 		"status":            product.Status,
 		"created_by":        product.CreatedBy,
 		"created_at":        product.CreatedAt,
-		"updated_at":        product.UpdatedAt,
-		"commission_amount": product.CommissionAmount,
+		"updated_at":                 product.UpdatedAt,
+		"commission_amount":          product.CommissionAmount,
+		"member_commission_amount":   product.MemberCommissionAmount,
+		"reseller_commission_amount": product.ResellerCommissionAmount,
+
 		"location_name":     product.LocationName.String,
 		"latitude":          product.Latitude.String,
 		"longitude":         product.Longitude.String,
@@ -220,6 +245,7 @@ func (h *PublicHandler) GetProduct(c echo.Context) error {
 		"village":           product.Village.String,
 		"seller_phone":      product.SellerPhone,
 		"seller_name":       product.SellerName,
+		"specifications":    product.Specifications,
 	}
 
 	// Combine result
@@ -238,4 +264,69 @@ func (h *PublicHandler) ListCategories(c echo.Context) error {
 		return response.Error(c, apperrors.ErrInternalServerError)
 	}
 	return response.Success(c, http.StatusOK, "CATEGORIES_LISTED", categories)
+}
+
+// GetPublicConfigs retrieves configurations visible to public apps
+func (h *PublicHandler) GetPublicConfigs(c echo.Context) error {
+	configs, err := h.Queries.ListSystemConfigs(c.Request().Context())
+	if err != nil {
+		return response.Error(c, apperrors.ErrInternalServerError)
+	}
+
+	publicData := map[string]interface{}{
+		"admin_whatsapp_number":        "",
+		"member_registration_fee":      10000,
+		"reseller_registration_fee":    50000,
+		"minimum_withdrawal_amount":    20000,
+		"reseller_referral_commission": 10000,
+	}
+
+	for _, cfg := range configs {
+		switch cfg.Key {
+		case "admin_whatsapp_number":
+			publicData["admin_whatsapp_number"] = cfg.Value
+		case "member_registration_fee":
+			var val int
+			if _, err := fmt.Sscanf(cfg.Value, "%d", &val); err == nil {
+				publicData["member_registration_fee"] = val
+			}
+		case "reseller_registration_fee":
+			var val int
+			if _, err := fmt.Sscanf(cfg.Value, "%d", &val); err == nil {
+				publicData["reseller_registration_fee"] = val
+			}
+		case "minimum_withdrawal_amount":
+			var val int
+			if _, err := fmt.Sscanf(cfg.Value, "%d", &val); err == nil {
+				publicData["minimum_withdrawal_amount"] = val
+			}
+		case "reseller_referral_commission":
+			var val int
+			if _, err := fmt.Sscanf(cfg.Value, "%d", &val); err == nil {
+				publicData["reseller_referral_commission"] = val
+			}
+		}
+	}
+
+	return response.Success(c, http.StatusOK, "PUBLIC_CONFIGS_RETRIEVED", publicData)
+}
+
+// GetLeaderboard retrieves the top 10 commissions leaderboard
+func (h *PublicHandler) GetLeaderboard(c echo.Context) error {
+	leaderboard, err := h.Queries.GetCommissionLeaderboard(c.Request().Context())
+	if err != nil {
+		return response.Error(c, apperrors.ErrInternalServerError)
+	}
+
+	result := make([]map[string]interface{}, len(leaderboard))
+	for i, r := range leaderboard {
+		result[i] = map[string]interface{}{
+			"user_id":      r.UserID,
+			"user_type":    r.UserType,
+			"user_name":    r.UserName,
+			"total_amount": r.TotalAmount,
+		}
+	}
+
+	return response.Success(c, http.StatusOK, "LEADERBOARD_RETRIEVED", result)
 }

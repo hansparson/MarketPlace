@@ -96,29 +96,101 @@ func (h *AuthHandler) ResellerLogin(c echo.Context) error {
 		return response.Error(c, apperrors.ErrBadRequest)
 	}
 
-	user, err := h.Queries.GetUserByPhone(context.Background(), req.Phone)
+	reseller, err := h.Queries.GetResellerByPhone(context.Background(), req.Phone)
 	if err != nil {
-		return response.Error(c, apperrors.ErrUnauthorized)
+		// Try by username if phone not found
+		resellerByUsername, err2 := h.Queries.GetResellerByUsername(context.Background(), sql.NullString{String: req.Phone, Valid: true})
+		if err2 != nil {
+			return response.Error(c, apperrors.ErrUnauthorized)
+		}
+		// Convert GetResellerByUsernameRow/Reseller to Reseller if needed
+		// Reseller is the base struct
+		reseller = resellerByUsername
 	}
 
-	// Verify Role
-	if user.Role != db.UserRoleRESELLER {
+	// Check status
+	if reseller.Status == "BLOCKED" {
 		return response.Error(c, apperrors.ErrUnauthorized)
 	}
 
 	// Check password (simple check for now)
-	if user.PasswordHash != req.Password {
+	if reseller.PasswordHash != req.Password {
 		return response.Error(c, apperrors.ErrUnauthorized)
 	}
 
-	token, err := utils.GenerateToken(user.ID.String(), string(user.Role))
+	token, err := utils.GenerateToken(reseller.ID.String(), "RESELLER")
 	if err != nil {
 		return response.Error(c, apperrors.ErrInternalServerError)
 	}
 
+	var paymentURL, invoiceNumber string
+	if reseller.Status == "PENDING" {
+		payment, err := h.Queries.GetRegistrationPaymentByUserID(context.Background(), reseller.ID)
+		if err == nil {
+			paymentURL = payment.PaymentUrl.String
+			invoiceNumber = payment.InvoiceNumber
+		}
+	}
+
 	return response.Success(c, http.StatusOK, "LOGIN_SUCCESS", map[string]interface{}{
-		"token": token,
-		"role":  string(user.Role),
-		"user":  user,
+		"token":          token,
+		"role":           "RESELLER",
+		"user":           reseller,
+		"payment_url":    paymentURL,
+		"invoice_number": invoiceNumber,
+	})
+}
+
+// MemberLogin
+func (h *AuthHandler) MemberLogin(c echo.Context) error {
+	var req struct {
+		Phone    string `json:"phone"`
+		Password string `json:"password"`
+	}
+
+	if err := c.Bind(&req); err != nil {
+		return response.Error(c, apperrors.ErrBadRequest)
+	}
+
+	member, err := h.Queries.GetMemberByPhone(context.Background(), req.Phone)
+	if err != nil {
+		// Try by username if phone not found
+		memberByUsername, err2 := h.Queries.GetMemberByUsername(context.Background(), sql.NullString{String: req.Phone, Valid: true})
+		if err2 != nil {
+			return response.Error(c, apperrors.ErrUnauthorized)
+		}
+		member = memberByUsername
+	}
+
+	// Check status
+	if member.Status == "BLOCKED" {
+		return response.Error(c, apperrors.ErrUnauthorized)
+	}
+
+	// Check password (simple check for now)
+	if member.PasswordHash != req.Password {
+		return response.Error(c, apperrors.ErrUnauthorized)
+	}
+
+	token, err := utils.GenerateToken(member.ID.String(), "MEMBER")
+	if err != nil {
+		return response.Error(c, apperrors.ErrInternalServerError)
+	}
+
+	var paymentURL, invoiceNumber string
+	if member.Status == "PENDING" {
+		payment, err := h.Queries.GetRegistrationPaymentByUserID(context.Background(), member.ID)
+		if err == nil {
+			paymentURL = payment.PaymentUrl.String
+			invoiceNumber = payment.InvoiceNumber
+		}
+	}
+
+	return response.Success(c, http.StatusOK, "LOGIN_SUCCESS", map[string]interface{}{
+		"token":          token,
+		"role":           "MEMBER",
+		"user":           member,
+		"payment_url":    paymentURL,
+		"invoice_number": invoiceNumber,
 	})
 }

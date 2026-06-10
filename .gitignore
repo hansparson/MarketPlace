@@ -1,38 +1,86 @@
-# Binaries for programs and plugins
+# ─── Go Binaries ──────────────────────────────────────────────────────────────
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-
-# Test binary, built with `go test -c`
 *.test
-
-# Output of the go coverage tool, specifically when used with Litmus
 *.out
 
-# Dependency directories (remove the comment below to include it)
-# vendor/
-
-# IDEs
+# ─── IDE ──────────────────────────────────────────────────────────────────────
 .idea/
 .vscode/
 *.swp
 *.swo
 
-# OS
+# ─── OS ───────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 
-# ENV
+# ─── Environment & Credentials ────────────────────────────────────────────────
+# JANGAN commit file environment yang berisi secret!
 .env
+.env.production
 .env.local
+.env.*.local
+firebase_credential/
+uat-script/
 
-# Frontend
+# Temporary & backup files
+*.bak
+*.tmp
+
+# Python virtual environments
+venv/
+.venv/
+
+# Android Keystores & iOS Certificates
+*.jks
+*.keystore
+*.key
+*.p12
+*.mobileprovision
+*.cer
+
+# File development boleh di-commit (tidak ada secret produksi):
+# .env.development  ← sengaja TIDAK diignore agar team bisa share
+
+# ─── Frontend ─────────────────────────────────────────────────────────────────
 node_modules/
 dist/
 dist-ssr/
 *.local
+frontend/.env.production
 
-# Docker
+# ─── Docker ───────────────────────────────────────────────────────────────────
 volumes/
+
+# ─── Flutter (gostar-id & gostar_mart) ────────────────────────────────────────
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.pub-cache/
+**/.pub/
+*.apk
+*.aab
+*.ipa
+
+# ─── Backend ──────────────────────────────────────────────────────────────────
+backend/main
+backend/docs/swagger.json
+backend/docs/swagger.yaml
+
+# ─── Firebase & Google Service Credentials ────────────────────────────────────
+# Ignore Firebase service account JSONs
+backend/configs/firebase-*.json
+
+# Ignore Android Google Services configuration
+**/google-services.json
+
+# Ignore iOS Google Services configuration
+**/GoogleService-Info.plist
+
+# ─── Compiled Binaries & Build Artifacts ──────────────────────────────────────
+# Ignore compiled backend binary
+backend/server

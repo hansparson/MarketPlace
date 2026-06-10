@@ -53,10 +53,10 @@ LIMIT $2 OFFSET $3;
 
 -- name: CreateProduct :one
 INSERT INTO products (
-    category_id, title, description, price, commission_amount, status, created_by, 
-    location_name, latitude, longitude, province, regency, district, village, stock
+    category_id, title, description, price, member_commission_amount, reseller_commission_amount, commission_amount, status, created_by, 
+    location_name, latitude, longitude, province, regency, district, village, stock, specifications
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
 )
 RETURNING *;
 
@@ -102,7 +102,8 @@ ORDER BY click_date DESC;
 -- name: GetDashboardStats :one
 SELECT 
     (SELECT COUNT(*) FROM products) as total_products,
-    (SELECT COUNT(*) FROM users WHERE role = 'RESELLER') as total_resellers,
+    (SELECT COUNT(*) FROM resellers) as total_resellers,
+    (SELECT COUNT(*) FROM members) as total_members,
     (SELECT COUNT(*) FROM product_clicks) as total_clicks,
     (SELECT COUNT(*) FROM product_verifications) as total_verifications;
 
@@ -121,9 +122,12 @@ SELECT COUNT(*) FROM products;
 
 -- name: UpdateProduct :one
 UPDATE products
-SET category_id = $2, title = $3, description = $4, price = $5, commission_amount = $6, status = $7, updated_at = CURRENT_TIMESTAMP,
-    location_name = $8, latitude = $9, longitude = $10,
-    province = $11, regency = $12, district = $13, village = $14, stock = $15
+SET category_id = $2, title = $3, description = $4, price = $5, 
+    member_commission_amount = $6, reseller_commission_amount = $7, 
+    status = $8, updated_at = CURRENT_TIMESTAMP,
+    location_name = $9, latitude = $10, longitude = $11,
+    province = $12, regency = $13, district = $14, village = $15, stock = $16,
+    commission_amount = $17, specifications = $18
 WHERE id = $1
 RETURNING *;
 
@@ -135,6 +139,9 @@ DELETE FROM product_assets WHERE product_id = $1;
 
 -- name: DeleteProductAsset :exec
 DELETE FROM product_assets WHERE id = $1;
+
+-- name: GetProductAsset :one
+SELECT * FROM product_assets WHERE id = $1 LIMIT 1;
 
 -- name: GetResellerClickCount :one
 SELECT COUNT(*) FROM product_clicks WHERE reseller_id = $1;

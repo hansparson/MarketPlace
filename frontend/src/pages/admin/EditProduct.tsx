@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeftIcon, TrashIcon, CloudArrowUpIcon, MapPinIcon } from '@heroicons/react/24/outline';
-import client from '../api/client';
-import { getImageUrl } from '../utils/image';
-import locationService, { Province, Regency, District, Village } from '../services/locationService';
+import client from '../../api/client';
+import { getImageUrl } from '../../utils/image';
+import locationService, { Province, Regency, District, Village } from '../../services/locationService';
 
 const EditProduct = () => {
     const navigate = useNavigate();
@@ -18,7 +18,8 @@ const EditProduct = () => {
         title: '',
         description: '',
         price: '',
-        commission_amount: '',
+        member_commission_amount: '',
+        reseller_commission_amount: '',
         stock: '1', // Tambah field stock
         status: 'ACTIVE',
         location_name: '',
@@ -29,6 +30,21 @@ const EditProduct = () => {
         district: '',
         village: '',
     });
+    const [specifications, setSpecifications] = useState<{ key: string; value: string }[]>([]);
+
+    const addSpecification = () => {
+        setSpecifications([...specifications, { key: '', value: '' }]);
+    };
+
+    const handleSpecificationChange = (index: number, field: 'key' | 'value', value: string) => {
+        const updated = [...specifications];
+        updated[index][field] = value;
+        setSpecifications(updated);
+    };
+
+    const removeSpecification = (index: number) => {
+        setSpecifications(specifications.filter((_, i) => i !== index));
+    };
 
     // Location states
     const [provinces, setProvinces] = useState<Province[]>([]);
@@ -150,7 +166,8 @@ const EditProduct = () => {
                     title: productData.title,
                     description: productData.description,
                     price: productData.price,
-                    commission_amount: productData.commission_amount || 0,
+                    member_commission_amount: productData.member_commission_amount || 0,
+                    reseller_commission_amount: productData.reseller_commission_amount || 0,
                     stock: productData.stock || 1, // Load stock
                     status: productData.status,
                     location_name: productData.location_name || '',
@@ -162,6 +179,7 @@ const EditProduct = () => {
                     village: productData.village || '',
                 });
                 setAssets(assetsData);
+                setSpecifications(productData.specifications || []);
             }
         } catch (err) {
             console.error('Failed to load product', err);
@@ -176,11 +194,16 @@ const EditProduct = () => {
 
         try {
             const token = localStorage.getItem('token');
+            // Filter out empty key specifications
+            const filteredSpecs = specifications.filter(s => s.key.trim() !== '');
+
             await client.put(`/admin/products/${id}`, {
                 ...formData,
                 price: parseInt(String(formData.price)),
-                commission_amount: parseInt(String(formData.commission_amount || 0)),
-                stock: parseInt(String(formData.stock || 1)) // Include stock
+                member_commission_amount: parseInt(String(formData.member_commission_amount || 0)),
+                reseller_commission_amount: parseInt(String(formData.reseller_commission_amount || 0)),
+                stock: parseInt(String(formData.stock || 1)), // Include stock
+                specifications: filteredSpecs
             }, {
                 headers: { Authorization: `Bearer ${token}` }
             });
@@ -478,6 +501,55 @@ const EditProduct = () => {
                             />
                         </div>
 
+                        {/* Specifications */}
+                        <div className="pt-4 border-t border-gray-100">
+                            <div className="flex justify-between items-center mb-2">
+                                <label className="block text-sm font-bold text-gray-900">
+                                    Spesifikasi / Detail Produk (Key-Value)
+                                </label>
+                                <button
+                                    type="button"
+                                    onClick={addSpecification}
+                                    className="flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 transition-colors"
+                                >
+                                    <span className="text-sm font-bold">+</span> Tambah Detail
+                                </button>
+                            </div>
+                            {specifications.length === 0 ? (
+                                <p className="text-xs text-gray-400 italic">Belum ada detail khusus. Klik &quot;+ Tambah Detail&quot; untuk menambahkan manual point (misal: Tahun: 2020, CC: 125).</p>
+                            ) : (
+                                <div className="space-y-3">
+                                    {specifications.map((spec, index) => (
+                                        <div key={index} className="flex gap-3 items-center">
+                                            <input
+                                                type="text"
+                                                value={spec.key}
+                                                onChange={(e) => handleSpecificationChange(index, 'key', e.target.value)}
+                                                placeholder="Contoh: Tahun Keluaran, Luas, CC"
+                                                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-sm"
+                                            />
+                                            <span className="text-gray-400 text-sm font-bold">»</span>
+                                            <input
+                                                type="text"
+                                                value={spec.value}
+                                                onChange={(e) => handleSpecificationChange(index, 'value', e.target.value)}
+                                                placeholder="Contoh: 2019, 100m2, 125cc"
+                                                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-sm"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => removeSpecification(index)}
+                                                className="text-red-500 hover:text-red-700 transition-colors"
+                                                title="Hapus detail"
+                                            >
+                                                <TrashIcon className="w-5 h-5" />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
                         {/* Description */}
                         <div>
                             <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
@@ -549,24 +621,45 @@ const EditProduct = () => {
                             </div>
                         </div>
 
-                        {/* Commission */}
-                        <div>
-                            <label htmlFor="commission" className="block text-sm font-medium text-gray-700 mb-2">
-                                Reseller Commission (IDR) *
-                            </label>
-                            <div className="relative">
-                                <span className="absolute left-4 top-3 text-gray-500">Rp</span>
-                                <input
-                                    id="commission"
-                                    type="number"
-                                    required
-                                    min="0"
-                                    value={formData.commission_amount}
-                                    onChange={(e) => setFormData({ ...formData, commission_amount: e.target.value })}
-                                    className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                                    placeholder="0"
-                                />
-                                <p className="mt-1 text-xs text-gray-500">Amount to be given to reseller when this product is sold through their link.</p>
+                        {/* Commissions */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label htmlFor="reseller_commission" className="block text-sm font-medium text-gray-700 mb-2">
+                                    Reseller Commission (IDR) *
+                                </label>
+                                <div className="relative">
+                                    <span className="absolute left-4 top-3 text-gray-500">Rp</span>
+                                    <input
+                                        id="reseller_commission"
+                                        type="number"
+                                        required
+                                        min="0"
+                                        value={formData.reseller_commission_amount}
+                                        onChange={(e) => setFormData({ ...formData, reseller_commission_amount: e.target.value })}
+                                        placeholder="0"
+                                        className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                                    />
+                                </div>
+                                <p className="mt-1 text-xs text-gray-500">Untuk Reseller.</p>
+                            </div>
+                            <div>
+                                <label htmlFor="member_commission" className="block text-sm font-medium text-gray-700 mb-2">
+                                    Member Commission (IDR) *
+                                </label>
+                                <div className="relative">
+                                    <span className="absolute left-4 top-3 text-gray-500">Rp</span>
+                                    <input
+                                        id="member_commission"
+                                        type="number"
+                                        required
+                                        min="0"
+                                        value={formData.member_commission_amount}
+                                        onChange={(e) => setFormData({ ...formData, member_commission_amount: e.target.value })}
+                                        placeholder="0"
+                                        className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                                    />
+                                </div>
+                                <p className="mt-1 text-xs text-gray-500">Untuk Member (Leader).</p>
                             </div>
                         </div>
 

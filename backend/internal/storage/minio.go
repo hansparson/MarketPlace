@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -141,4 +142,44 @@ func (s *MinioStorage) GetFileURL(objectKey string) string {
 	endpoint := os.Getenv("MINIO_ENDPOINT")
 	bucketName := os.Getenv("MINIO_BUCKET_NAME")
 	return fmt.Sprintf("http://%s/%s/%s", endpoint, bucketName, objectKey)
+}
+
+// GetPresignedURL generates a time-limited presigned URL (valid 24 hours)
+func (s *MinioStorage) GetPresignedURL(ctx context.Context, objectKey string) string {
+	if objectKey == "" {
+		return ""
+	}
+	expiry := 24 * time.Hour
+	u, err := s.client.PresignedGetObject(ctx, s.bucketName, objectKey, expiry, nil)
+	if err != nil {
+		log.Printf("[MinIO] Failed to generate presigned URL for %s: %v", objectKey, err)
+		return ""
+	}
+
+	// When accessed from an Android emulator or mobile device, the internal
+	// Docker hostname (minio:9000) is unreachable. We replace it with the
+	// public endpoint configured in MINIO_PUBLIC_HOST env var, falling back
+	// to the raw endpoint so callers always get a usable URL.
+	rawURL := u.String()
+	publicHost := os.Getenv("MINIO_PUBLIC_HOST") // e.g. "192.168.1.10:9000"
+	if publicHost != "" {
+		internalHost := os.Getenv("MINIO_ENDPOINT")
+		if internalHost == "" {
+			internalHost = "minio:9000"
+		}
+		rawURL = strings.ReplaceAll(rawURL, internalHost, publicHost)
+	}
+	return rawURL
+}
+
+
+func (s *MinioStorage) DeleteFile(ctx context.Context, objectKey string) error {
+	log.Printf("[MinIO] Deleting file: %s", objectKey)
+	err := s.client.RemoveObject(ctx, s.bucketName, objectKey, minio.RemoveObjectOptions{})
+	if err != nil {
+		log.Printf("[MinIO] Failed to delete file: %v", err)
+		return err
+	}
+	log.Printf("[MinIO] Successfully deleted: %s", objectKey)
+	return nil
 }

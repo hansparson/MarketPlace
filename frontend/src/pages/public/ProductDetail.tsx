@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import client from '../api/client';
-import Navbar from '../components/Navbar';
+import client from '../../api/client';
+import Navbar from '../../components/Navbar';
 import {
     ChevronLeftIcon,
     ChevronRightIcon,
@@ -14,8 +14,8 @@ import {
     ClockIcon,
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
-import { getImageUrl } from '../utils/image';
-import { formatRelativeTime } from '../utils/date';
+import { getImageUrl } from '../../utils/image';
+import { formatRelativeTime } from '../../utils/date';
 
 const ProductDetail = () => {
     const { id } = useParams();
@@ -37,13 +37,24 @@ const ProductDetail = () => {
     useEffect(() => {
         loadProduct();
         const role = localStorage.getItem('role');
-        setIsReseller(role === 'RESELLER');
-
-        // Check for referral and lead capture
+        setIsReseller(role === 'RESELLER' || role === 'MEMBER');
+        
+        // Track Click
         const ref = searchParams.get('ref');
         if (ref && id) {
-            // Don't capture leads from Resellers or Admins
-            if (role === 'RESELLER' || role === 'ADMIN' || role === 'SUPER_ADMIN') {
+            const tracked = sessionStorage.getItem(`click_tracked_${id}`);
+            if (!tracked) {
+                client.get(`/track/click?product_id=${id}&ref=${ref}`)
+                    .then(() => sessionStorage.setItem(`click_tracked_${id}`, 'true'))
+                    .catch(err => console.error("Failed to track click", err));
+            }
+        }
+
+        // Check for referral and lead capture
+
+        if (ref && id) {
+            // Don't capture leads from Resellers, Members, or Admins
+            if (role === 'RESELLER' || role === 'MEMBER' || role === 'ADMIN' || role === 'SUPER_ADMIN') {
                 return;
             }
 
@@ -80,13 +91,17 @@ const ProductDetail = () => {
             phone = '62' + phone;
         }
 
-        // Buat link produk (gunakan window.location.origin untuk support semua environment)
-        const productUrl = `${window.location.origin}/products/${id}`;
+        const ref = searchParams.get('ref');
+        const productUrl = `${window.location.origin}/products/${id}${ref ? `?ref=${ref}` : ''}`;
+        
+        // Ambil nama dari form lead jika baru saja diisi
+        const buyerName = leadForm.name || 'Calon Pembeli';
 
         const text = encodeURIComponent(
-            `Halo Zeth Lintin, saya ingin tahu lebih lanjut tentang produk *${product.title}* di Gostar Mart.\n\n` +
-            `Link Produk: ${productUrl}\n\n` +
-            `Bisa dibantu informasinya?`
+            `Halo Zeth Lintin, saya *${buyerName}* ingin tahu lebih lanjut tentang produk *${product.title}* di Gostar Mart.\n\n` +
+            `Link Produk: ${productUrl}\n` +
+            (ref ? `Referral: ${ref}\n` : '') +
+            `\nBisa dibantu informasinya?`
         );
 
         window.open(`https://api.whatsapp.com/send?phone=${phone}&text=${text}`, '_blank');
@@ -213,20 +228,30 @@ const ProductDetail = () => {
                         <div className="p-4 sm:p-8 bg-gray-50/50 flex flex-col items-center justify-center relative">
                             {hasImages ? (
                                 <div className="product-image-container product-detail-image relative w-full aspect-square max-w-lg mx-auto bg-white rounded-[24px] overflow-hidden shadow-sm border border-gray-100">
-                                    <img
-                                        src={getImageUrl(images[activeImageIndex].object_key)}
-                                        alt={product.title}
-                                        className="w-full h-full object-contain"
-                                        loading="eager"
-                                        onError={(e) => {
-                                            const target = e.target as HTMLImageElement;
-                                            target.style.display = 'none';
-                                            const parent = target.parentElement;
-                                            if (parent) {
-                                                parent.innerHTML = '<div class="w-full h-full flex flex-col items-center justify-center text-gray-400 bg-gray-50"><svg class="w-24 h-24 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg><p class="text-sm font-medium">Gambar tidak tersedia</p></div>';
-                                            }
-                                        }}
-                                    />
+                                        <img
+                                            src={getImageUrl(images[activeImageIndex].object_key)}
+                                            alt={product.title}
+                                            className="w-full h-full object-contain"
+                                            loading="eager"
+                                            onError={(e) => {
+                                                const target = e.target as HTMLImageElement;
+                                                target.style.display = 'none';
+                                                const parent = target.parentElement;
+                                                if (parent) {
+                                                    parent.innerHTML = '<div class="w-full h-full flex flex-col items-center justify-center text-gray-400 bg-gray-50"><svg class="w-24 h-24 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg><p class="text-sm font-medium">Gambar tidak tersedia</p></div>';
+                                                }
+                                            }}
+                                        />
+
+                                        {/* SOLD OUT Badge */}
+                                        {(product.stock <= 0 || product.status === 'SOLD') && (
+                                            <div className="absolute inset-0 z-20 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-6">
+                                                <div className="bg-red-600 text-white px-8 py-3 rounded-2xl shadow-2xl transform -rotate-12 border-4 border-white font-black text-3xl tracking-tighter uppercase">
+                                                    Sold Out
+                                                </div>
+                                            </div>
+                                        )}
+
 
                                     {/* Slider Controls */}
                                     {images.length > 1 && (
@@ -348,20 +373,39 @@ const ProductDetail = () => {
                                     </div>
                                 )}
 
-                                {isReseller && product.commission_amount > 0 && (
+                                {isReseller && (
                                     <div className="mb-8 p-5 bg-gradient-to-br from-green-50 to-emerald-50 border border-green-100 rounded-[24px] flex items-center justify-between shadow-sm shadow-green-100">
                                         <div>
                                             <p className="text-[10px] text-green-600 font-black uppercase tracking-wider mb-1 flex items-center gap-1">
                                                 <StarIconSolid className="w-3 h-3" />
-                                                Potensi Komisi Reseller
+                                                Potensi Komisi {localStorage.getItem('role')}
                                             </p>
-                                            <p className="text-xl sm:text-2xl font-black text-green-700">{formatPrice(product.commission_amount)}</p>
+                                            <p className="text-xl sm:text-2xl font-black text-green-700">
+                                                {localStorage.getItem('role') === 'MEMBER' 
+                                                    ? formatPrice(product.member_commission_amount || 0)
+                                                    : formatPrice(product.reseller_commission_amount || 0)
+                                                }
+                                            </p>
                                         </div>
                                         <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-green-600 shadow-sm border border-green-100">
                                             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                         </div>
                                     </div>
                                 )}
+
+                                 {product.specifications && Array.isArray(product.specifications) && product.specifications.length > 0 && (
+                                     <div className="mb-8 p-6 bg-gray-50/50 rounded-[24px] border border-gray-100/80">
+                                         <h3 className="text-gray-900 text-sm font-black uppercase tracking-[0.1em] mb-5 border-l-4 border-blue-500 pl-3">Spesifikasi Produk</h3>
+                                         <div className="space-y-4 max-w-2xl">
+                                             {product.specifications.map((spec: any, idx: number) => (
+                                                 <div key={idx} className="flex text-sm leading-relaxed">
+                                                     <span className="w-1/3 text-gray-500 font-semibold">{spec.key}</span>
+                                                     <span className="w-2/3 text-gray-900 font-black">{spec.value}</span>
+                                                 </div>
+                                             ))}
+                                         </div>
+                                     </div>
+                                 )}
 
                                 <div className="mb-10">
                                     <h3 className="text-gray-900 text-sm font-black uppercase tracking-[0.1em] mb-3 border-l-4 border-rose-500 pl-3">Deskripsi Produk</h3>
@@ -398,11 +442,17 @@ const ProductDetail = () => {
                             <div className="hidden sm:block mt-8 space-y-4">
                                 <button
                                     onClick={handleWhatsapp}
-                                    className="w-full flex items-center justify-center gap-3 px-6 py-5 bg-green-500 text-white rounded-[20px] hover:bg-green-600 hover:shadow-xl hover:shadow-green-100 transition-all font-black text-lg active:scale-[0.98]"
+                                    disabled={product.stock <= 0 || product.status === 'SOLD'}
+                                    className={`w-full flex items-center justify-center gap-3 px-6 py-5 rounded-[20px] transition-all font-black text-lg active:scale-[0.98] ${
+                                        (product.stock <= 0 || product.status === 'SOLD')
+                                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                            : 'bg-green-500 text-white hover:bg-green-600 hover:shadow-xl hover:shadow-green-100'
+                                    }`}
                                 >
                                     <ChatBubbleLeftRightIcon className="w-7 h-7" />
-                                    Tanya Penjual (WhatsApp)
+                                    {(product.stock <= 0 || product.status === 'SOLD') ? 'PRODUK TERJUAL' : 'Tanya Penjual (WhatsApp)'}
                                 </button>
+
 
                                 {isReseller && (
                                     <button
@@ -423,11 +473,17 @@ const ProductDetail = () => {
             <div className="sm:hidden fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-xl border-t border-gray-100 p-4 z-40 flex gap-3 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgb(0,0,0,0.04)]">
                 <button
                     onClick={handleWhatsapp}
-                    className="flex-[2] flex items-center justify-center gap-2 px-6 py-4 bg-green-500 text-white rounded-2xl font-black text-sm active:scale-95 transition-all shadow-lg shadow-green-100"
+                    disabled={product.stock <= 0 || product.status === 'SOLD'}
+                    className={`flex-[2] flex items-center justify-center gap-2 px-6 py-4 rounded-2xl font-black text-sm active:scale-95 transition-all shadow-lg ${
+                        (product.stock <= 0 || product.status === 'SOLD')
+                            ? 'bg-gray-300 text-gray-500 shadow-none'
+                            : 'bg-green-500 text-white shadow-green-100'
+                    }`}
                 >
                     <ChatBubbleLeftRightIcon className="w-5 h-5" />
-                    CHAT WA
+                    {(product.stock <= 0 || product.status === 'SOLD') ? 'TERJUAL' : 'CHAT WA'}
                 </button>
+
                 {isReseller && (
                     <button
                         onClick={handleShare}

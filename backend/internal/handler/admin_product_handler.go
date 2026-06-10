@@ -6,11 +6,14 @@ import (
 	"database/sql"
 	"fmt"
 	"image/jpeg"
+	"log"
 	"math"
 	"mime/multipart"
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"time"
+	"encoding/json"
 
 	"github.com/disintegration/imaging"
 	"github.com/google/uuid"
@@ -24,19 +27,21 @@ import (
 // Add Product
 func (h *AdminHandler) CreateProduct(c echo.Context) error {
 	var req struct {
-		CategoryID       string  `json:"category_id"`
-		Title            string  `json:"title"`
-		Description      string  `json:"description"`
-		Price            int64   `json:"price"`
-		CommissionAmount int64   `json:"commission_amount"`
-		LocationName     string  `json:"location_name"`
-		Latitude         float64 `json:"latitude"`
-		Longitude        float64 `json:"longitude"`
-		Province         string  `json:"province"`
-		Regency          string  `json:"regency"`
-		District         string  `json:"district"`
-		Village          string  `json:"village"`
-		Stock            int32   `json:"stock"`
+		CategoryID               string  `json:"category_id"`
+		Title                    string  `json:"title"`
+		Description              string  `json:"description"`
+		Price                    int64   `json:"price"`
+		MemberCommissionAmount   int64   `json:"member_commission_amount"`
+		ResellerCommissionAmount int64   `json:"reseller_commission_amount"`
+		LocationName             string  `json:"location_name"`
+		Latitude                 float64 `json:"latitude"`
+		Longitude                float64 `json:"longitude"`
+		Province                 string  `json:"province"`
+		Regency                  string  `json:"regency"`
+		District                 string  `json:"district"`
+		Village                  string          `json:"village"`
+		Stock                    int32           `json:"stock"`
+		Specifications           json.RawMessage `json:"specifications"`
 	}
 
 	if err := c.Bind(&req); err != nil {
@@ -62,26 +67,51 @@ func (h *AdminHandler) CreateProduct(c echo.Context) error {
 		req.Stock = 1
 	}
 
+	specifications := req.Specifications
+	if len(specifications) == 0 {
+		specifications = []byte("[]")
+	}
+
 	product, err := h.Queries.CreateProduct(context.Background(), db.CreateProductParams{
-		CategoryID:       catID,
-		Title:            req.Title,
-		Description:      req.Description,
-		Price:            req.Price,
-		CommissionAmount: req.CommissionAmount,
-		CreatedBy:        adminID,
-		Status:           db.ProductStatusACTIVE,
-		LocationName:     sql.NullString{String: req.LocationName, Valid: req.LocationName != ""},
-		Latitude:         sql.NullString{String: fmt.Sprintf("%f", req.Latitude), Valid: req.Latitude != 0},
-		Longitude:        sql.NullString{String: fmt.Sprintf("%f", req.Longitude), Valid: req.Longitude != 0},
-		Province:         sql.NullString{String: req.Province, Valid: req.Province != ""},
-		Regency:          sql.NullString{String: req.Regency, Valid: req.Regency != ""},
-		District:         sql.NullString{String: req.District, Valid: req.District != ""},
-		Village:          sql.NullString{String: req.Village, Valid: req.Village != ""},
-		Stock:            req.Stock,
+		CategoryID:               catID,
+		Title:                    req.Title,
+		Description:              req.Description,
+		Price:                    req.Price,
+		MemberCommissionAmount:   req.MemberCommissionAmount,
+		ResellerCommissionAmount: req.ResellerCommissionAmount,
+		CommissionAmount:         (req.MemberCommissionAmount + req.ResellerCommissionAmount) / 2,
+		CreatedBy:                adminID,
+		Status:                   db.ProductStatusACTIVE,
+		LocationName:             sql.NullString{String: req.LocationName, Valid: req.LocationName != ""},
+		Latitude:                 sql.NullString{String: fmt.Sprintf("%f", req.Latitude), Valid: req.Latitude != 0},
+		Longitude:                sql.NullString{String: fmt.Sprintf("%f", req.Longitude), Valid: req.Longitude != 0},
+		Province:                 sql.NullString{String: req.Province, Valid: req.Province != ""},
+		Regency:                  sql.NullString{String: req.Regency, Valid: req.Regency != ""},
+		District:                 sql.NullString{String: req.District, Valid: req.District != ""},
+		Village:                  sql.NullString{String: req.Village, Valid: req.Village != ""},
+		Stock:                    req.Stock,
+		Specifications:           specifications,
 	})
 
 	if err != nil {
 		return response.Error(c, apperrors.ErrInternalServerError)
+	}
+
+	if h.Notification != nil {
+		go func(p db.Product) {
+			ctx := context.Background()
+			// Broadcast to gostar-id (MEMBER and RESELLER)
+			h.Notification.BroadcastToRoles(ctx, []string{"MEMBER", "RESELLER"}, 
+				"Produk Baru Ditambahkan!", 
+				fmt.Sprintf("Katalog baru '%s' telah tersedia. Yuk bagikan sekarang dan dapatkan komisinya!", p.Title),
+				map[string]string{"type": "new_product", "product_id": p.ID.String()})
+
+			// Broadcast to gostar-mart (CLIENT)
+			h.Notification.BroadcastToRoles(ctx, []string{"CLIENT"}, 
+				"Produk Baru untuk Anda!", 
+				fmt.Sprintf("'%s' kini tersedia di toko. Lihat sekarang!", p.Title),
+				map[string]string{"type": "new_product", "product_id": p.ID.String()})
+		}(product)
 	}
 
 	return response.Success(c, http.StatusCreated, "PRODUCT_CREATED", product)
@@ -103,12 +133,14 @@ func (h *AdminHandler) UploadAsset(c echo.Context) error {
 
 	form, err := c.MultipartForm()
 	if err != nil {
-		return response.Error(c, apperrors.ErrBadRequest)
+		log.Printf("[UploadAsset] Failed to parse multipart form: %v", err)
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Failed to parse form: " + err.Error()})
 	}
 
 	files := form.File["files"]
 	if len(files) == 0 {
-		return response.Error(c, apperrors.ErrBadRequest)
+		log.Printf("[UploadAsset] No files found in request")
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "No files uploaded"})
 	}
 
 	var images, videos []*multipart.FileHeader
@@ -131,42 +163,63 @@ func (h *AdminHandler) UploadAsset(c echo.Context) error {
 		}
 	}
 
-	if len(images) < 1 || len(images) > 5 {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "1-5 images required"})
+	if len(images) > 5 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Maximum 5 images allowed"})
+	}
+	if len(videos) > 2 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Maximum 2 videos allowed"})
 	}
 
 	var uploadedAssets []db.ProductAsset
 
 	for _, file := range images {
-		buf, newFilename, _ := compressImage(file)
-		var path string
+		buf, newFilename, err := compressImage(file)
+		if err != nil {
+			log.Printf("[UploadAsset] Compression failed for %s: %v", file.Filename, err)
+			continue // Skip this one but keep going
+		}
 
+		var path string
 		if buf != nil {
 			path, err = h.Storage.UploadStream(context.Background(), buf, int64(buf.Len()), "image/jpeg", newFilename, "products/"+productID)
 		} else {
 			path, err = h.Storage.UploadFile(context.Background(), file, "products/"+productID)
 		}
 
-		if err == nil {
-			asset, _ := h.Queries.CreateProductAsset(context.Background(), db.CreateProductAssetParams{
-				ProductID: prodID,
-				AssetType: db.AssetTypeIMAGE,
-				ObjectKey: path,
-			})
-			uploadedAssets = append(uploadedAssets, asset)
+		if err != nil {
+			log.Printf("[UploadAsset] Storage upload failed for %s: %v", file.Filename, err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to upload to storage: " + err.Error()})
 		}
+
+		asset, err := h.Queries.CreateProductAsset(context.Background(), db.CreateProductAssetParams{
+			ProductID: prodID,
+			AssetType: db.AssetTypeIMAGE,
+			ObjectKey: path,
+		})
+		if err != nil {
+			log.Printf("[UploadAsset] DB entry failed for %s: %v", path, err)
+			continue
+		}
+		uploadedAssets = append(uploadedAssets, asset)
 	}
 
 	for _, file := range videos {
 		path, err := h.Storage.UploadFile(context.Background(), file, "products/"+productID)
-		if err == nil {
-			asset, _ := h.Queries.CreateProductAsset(context.Background(), db.CreateProductAssetParams{
-				ProductID: prodID,
-				AssetType: db.AssetTypeVIDEO,
-				ObjectKey: path,
-			})
-			uploadedAssets = append(uploadedAssets, asset)
+		if err != nil {
+			log.Printf("[UploadAsset] Video upload failed for %s: %v", file.Filename, err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to upload video: " + err.Error()})
 		}
+
+		asset, err := h.Queries.CreateProductAsset(context.Background(), db.CreateProductAssetParams{
+			ProductID: prodID,
+			AssetType: db.AssetTypeVIDEO,
+			ObjectKey: path,
+		})
+		if err != nil {
+			log.Printf("[UploadAsset] Video DB entry failed for %s: %v", path, err)
+			continue
+		}
+		uploadedAssets = append(uploadedAssets, asset)
 	}
 
 	return response.Success(c, http.StatusOK, "ASSETS_UPLOADED", map[string]interface{}{
@@ -182,7 +235,15 @@ func (h *AdminHandler) DeleteAsset(c echo.Context) error {
 		return response.Error(c, apperrors.ErrBadRequest)
 	}
 
-	err = h.Queries.DeleteProductAsset(context.Background(), assetID)
+	ctx := context.Background()
+
+	// Fetch asset to get ObjectKey for storage deletion
+	asset, err := h.Queries.GetProductAsset(ctx, assetID)
+	if err == nil && h.Storage != nil {
+		_ = h.Storage.DeleteFile(ctx, asset.ObjectKey)
+	}
+
+	err = h.Queries.DeleteProductAsset(ctx, assetID)
 	if err != nil {
 		return response.Error(c, apperrors.ErrInternalServerError)
 	}
@@ -253,20 +314,22 @@ func (h *AdminHandler) UpdateProduct(c echo.Context) error {
 	}
 
 	var req struct {
-		CategoryID       string  `json:"category_id"`
-		Title            string  `json:"title"`
-		Description      string  `json:"description"`
-		Price            int64   `json:"price"`
-		CommissionAmount int64   `json:"commission_amount"`
-		Status           string  `json:"status"`
-		LocationName     string  `json:"location_name"`
-		Latitude         float64 `json:"latitude"`
-		Longitude        float64 `json:"longitude"`
-		Province         string  `json:"province"`
-		Regency          string  `json:"regency"`
-		District         string  `json:"district"`
-		Village          string  `json:"village"`
-		Stock            int32   `json:"stock"`
+		CategoryID               string  `json:"category_id"`
+		Title                    string  `json:"title"`
+		Description              string  `json:"description"`
+		Price                    int64   `json:"price"`
+		MemberCommissionAmount   int64   `json:"member_commission_amount"`
+		ResellerCommissionAmount int64   `json:"reseller_commission_amount"`
+		Status                   string  `json:"status"`
+		LocationName             string  `json:"location_name"`
+		Latitude                 float64 `json:"latitude"`
+		Longitude                float64 `json:"longitude"`
+		Province                 string  `json:"province"`
+		Regency                  string  `json:"regency"`
+		District                 string  `json:"district"`
+		Village                  string          `json:"village"`
+		Stock                    int32           `json:"stock"`
+		Specifications           json.RawMessage `json:"specifications"`
 	}
 
 	if err := c.Bind(&req); err != nil {
@@ -274,22 +337,31 @@ func (h *AdminHandler) UpdateProduct(c echo.Context) error {
 	}
 
 	catID, _ := uuid.Parse(req.CategoryID)
+
+	specifications := req.Specifications
+	if len(specifications) == 0 {
+		specifications = []byte("[]")
+	}
+
 	product, err := h.Queries.UpdateProduct(context.Background(), db.UpdateProductParams{
-		ID:               productID,
-		CategoryID:       catID,
-		Title:            req.Title,
-		Description:      req.Description,
-		Price:            req.Price,
-		CommissionAmount: req.CommissionAmount,
-		Status:           db.ProductStatus(req.Status),
-		LocationName:     sql.NullString{String: req.LocationName, Valid: req.LocationName != ""},
-		Latitude:         sql.NullString{String: fmt.Sprintf("%f", req.Latitude), Valid: req.Latitude != 0},
-		Longitude:        sql.NullString{String: fmt.Sprintf("%f", req.Longitude), Valid: req.Longitude != 0},
-		Province:         sql.NullString{String: req.Province, Valid: req.Province != ""},
-		Regency:          sql.NullString{String: req.Regency, Valid: req.Regency != ""},
-		District:         sql.NullString{String: req.District, Valid: req.District != ""},
-		Village:          sql.NullString{String: req.Village, Valid: req.Village != ""},
-		Stock:            req.Stock,
+		ID:                       productID,
+		CategoryID:               catID,
+		Title:                    req.Title,
+		Description:              req.Description,
+		Price:                    req.Price,
+		MemberCommissionAmount:   req.MemberCommissionAmount,
+		ResellerCommissionAmount: req.ResellerCommissionAmount,
+		Status:                   db.ProductStatus(req.Status),
+		LocationName:             sql.NullString{String: req.LocationName, Valid: req.LocationName != ""},
+		Latitude:                 sql.NullString{String: fmt.Sprintf("%f", req.Latitude), Valid: req.Latitude != 0},
+		Longitude:                sql.NullString{String: fmt.Sprintf("%f", req.Longitude), Valid: req.Longitude != 0},
+		Province:                 sql.NullString{String: req.Province, Valid: req.Province != ""},
+		Regency:                  sql.NullString{String: req.Regency, Valid: req.Regency != ""},
+		District:                 sql.NullString{String: req.District, Valid: req.District != ""},
+		Village:                  sql.NullString{String: req.Village, Valid: req.Village != ""},
+		Stock:                    req.Stock,
+		CommissionAmount:         (req.MemberCommissionAmount + req.ResellerCommissionAmount) / 2,
+		Specifications:           specifications,
 	})
 
 	if err != nil {
@@ -305,8 +377,16 @@ func (h *AdminHandler) DeleteProduct(c echo.Context) error {
 	productID, _ := uuid.Parse(id)
 	ctx := context.Background()
 
+	// Delete assets from storage first
+	assets, err := h.Queries.GetProductAssets(ctx, productID)
+	if err == nil && h.Storage != nil {
+		for _, asset := range assets {
+			_ = h.Storage.DeleteFile(ctx, asset.ObjectKey)
+		}
+	}
+
 	h.Queries.DeleteProductAssets(ctx, productID)
-	err := h.Queries.DeleteProduct(ctx, productID)
+	err = h.Queries.DeleteProduct(ctx, productID)
 	if err != nil {
 		return response.Error(c, apperrors.ErrInternalServerError)
 	}
@@ -327,14 +407,27 @@ func (h *AdminHandler) GetProductLeads(c echo.Context) error {
 	return response.Success(c, http.StatusOK, "PRODUCT_LEADS_RETRIEVED", leads)
 }
 
+// List Mart Clients
+func (h *AdminHandler) ListMartClients(c echo.Context) error {
+	search := c.QueryParam("q")
+
+	clients, err := h.Queries.ListMartClients(context.Background(), search)
+	if err != nil {
+		return response.Error(c, apperrors.ErrInternalServerError)
+	}
+
+	return response.Success(c, http.StatusOK, "MART_CLIENTS_RETRIEVED", clients)
+}
+
 // Mark Product as Sold
 func (h *AdminHandler) MarkProductSold(c echo.Context) error {
 	id := c.Param("id")
 	productID, _ := uuid.Parse(id)
 
 	var req struct {
-		LeadID    string `json:"lead_id"`
-		UnitsSold int32  `json:"units_sold"`
+		LeadID       string `json:"lead_id"`
+		MartClientID string `json:"mart_client_id"`
+		UnitsSold    int32  `json:"units_sold"`
 	}
 	c.Bind(&req)
 
@@ -342,7 +435,26 @@ func (h *AdminHandler) MarkProductSold(c echo.Context) error {
 		return response.Error(c, echo.NewHTTPError(http.StatusBadRequest, "units_sold must be > 0"))
 	}
 
-	product, _ := h.Queries.GetProduct(context.Background(), productID)
+	log.Printf("[MarkProductSold] productID: %s, leadID: %s, martClientID: %s, unitsSold: %d", id, req.LeadID, req.MartClientID, req.UnitsSold)
+
+	ctx := context.Background()
+	var tx *sql.Tx
+	var q db.Querier = h.Queries
+	var err error
+
+	if h.DB != nil {
+		tx, err = h.DB.BeginTx(ctx, nil)
+		if err != nil {
+			return response.Error(c, apperrors.ErrInternalServerError)
+		}
+		defer tx.Rollback()
+		q = db.New(tx)
+	}
+
+	product, err := q.GetProduct(ctx, productID)
+	if err != nil {
+		return response.Error(c, echo.NewHTTPError(http.StatusBadRequest, "Product not found"))
+	}
 	if product.Stock < req.UnitsSold {
 		return response.Error(c, echo.NewHTTPError(http.StatusBadRequest, "Not enough stock"))
 	}
@@ -355,38 +467,220 @@ func (h *AdminHandler) MarkProductSold(c echo.Context) error {
 	}
 
 	if req.LeadID != "" {
-		leadID, _ := uuid.Parse(req.LeadID)
-		leads, _ := h.Queries.GetLeadsByProduct(context.Background(), productID)
-		for _, l := range leads {
-			if l.ID == leadID && product.CommissionAmount > 0 {
-				h.Queries.CreateCommission(context.Background(), db.CreateCommissionParams{
-					ResellerID: l.ResellerID,
-					ProductID:  productID,
-					Amount:     product.CommissionAmount,
-					Status:     "PENDING",
-				})
-				break
+		leadID, err := uuid.Parse(req.LeadID)
+		if err != nil {
+			log.Printf("[MarkProductSold] Failed to parse leadID: %v", err)
+		} else {
+			leads, err := q.GetLeadsByProduct(ctx, productID)
+			if err != nil {
+				log.Printf("[MarkProductSold] Failed to fetch leads: %v", err)
+			}
+			
+			foundLead := false
+			for _, l := range leads {
+				if l.ID == leadID {
+					foundLead = true
+					if l.Status == db.LeadStatusDEAL {
+						return response.Error(c, echo.NewHTTPError(http.StatusBadRequest, "Lead already processed"))
+					}
+
+					log.Printf("[MarkProductSold] Found lead for reseller: %s (ID: %v)", l.ResellerName, l.ResellerID)
+					
+					err = q.UpdateLeadStatus(ctx, db.UpdateLeadStatusParams{
+						ID:     leadID,
+						Status: db.LeadStatusDEAL,
+					})
+					if err != nil {
+						log.Printf("[MarkProductSold] Failed to update lead status: %v", err)
+					}
+
+					// 1. Create Reseller Commission (ONLY if reseller_id is present)
+					if l.ResellerID.Valid && product.ResellerCommissionAmount > 0 {
+						comm, err := q.CreateCommission(ctx, db.CreateCommissionParams{
+							UserID:       l.ResellerID,
+							ProductID:    uuid.NullUUID{UUID: productID, Valid: true},
+							Amount:       product.ResellerCommissionAmount * int64(req.UnitsSold),
+							Status:       "PENDING",
+							UserType:     "RESELLER",
+							ReferralCode: sql.NullString{String: l.ReferralCode, Valid: true},
+						})
+						if err != nil {
+							log.Printf("[MarkProductSold] Error creating reseller commission: %v", err)
+						} else {
+							log.Printf("[MarkProductSold] Created reseller commission: %d (ID: %s)", comm.Amount, comm.ID)
+							if h.Notification != nil {
+								h.Notification.NotifyUser(ctx, l.ResellerID.UUID, "RESELLER",
+									"Komisi Baru Masuk!",
+									fmt.Sprintf("Produk '%s' terjual! Anda mendapatkan komisi sebesar Rp %d.", product.Title, comm.Amount),
+									map[string]string{"type": "commission", "amount": fmt.Sprintf("%d", comm.Amount)})
+							}
+						}
+					}
+
+					// 2. Create Member Commission
+					if product.MemberCommissionAmount > 0 {
+						var memberID uuid.NullUUID
+						if l.ResellerID.Valid {
+							// For Reseller lead, find their leader (member)
+							reseller, err := q.GetReseller(ctx, l.ResellerID.UUID)
+							if err == nil && reseller.MemberID.Valid {
+								memberID = reseller.MemberID
+							}
+						} else if l.MemberID.Valid {
+							// Direct Member lead
+							memberID = l.MemberID
+						}
+
+						if memberID.Valid {
+							comm, err := q.CreateCommission(ctx, db.CreateCommissionParams{
+								UserID:       memberID,
+								ProductID:    uuid.NullUUID{UUID: productID, Valid: true},
+								Amount:       product.MemberCommissionAmount * int64(req.UnitsSold),
+								Status:       "PENDING",
+								UserType:     "MEMBER",
+								ReferralCode: sql.NullString{String: l.ReferralCode, Valid: true},
+							})
+							if err != nil {
+								log.Printf("[MarkProductSold] Error creating member commission: %v", err)
+							} else {
+								log.Printf("[MarkProductSold] Created member commission: %d (ID: %s)", comm.Amount, comm.ID)
+								if h.Notification != nil {
+									h.Notification.NotifyUser(ctx, memberID.UUID, "MEMBER",
+										"Komisi Referral Baru!",
+										fmt.Sprintf("Produk '%s' terjual! Anda mendapatkan komisi sebesar Rp %d.", product.Title, comm.Amount),
+										map[string]string{"type": "commission", "amount": fmt.Sprintf("%d", comm.Amount)})
+								}
+							}
+						}
+					}
+					break
+				}
+			}
+			if !foundLead {
+				log.Printf("[MarkProductSold] Lead ID %s not found in leads for product %s", req.LeadID, id)
 			}
 		}
+	} else if req.MartClientID != "" {
+		clientID, err := uuid.Parse(req.MartClientID)
+		if err != nil {
+			log.Printf("[MarkProductSold] Failed to parse martClientID: %v", err)
+		} else {
+			client, err := q.GetMartClientByID(ctx, clientID)
+			if err != nil {
+				log.Printf("[MarkProductSold] Failed to fetch mart client: %v", err)
+			} else {
+				// Notify Client of successful purchase (gostar-mart)
+				if h.Notification != nil {
+					h.Notification.NotifyUser(ctx, clientID, "CLIENT",
+						"Pembelian Berhasil!",
+						fmt.Sprintf("Produk '%s' telah terjual atas nama Anda.", product.Title),
+						map[string]string{"type": "purchase_success", "product_id": product.ID.String()})
+				}
+
+				if client.ReferralCodeUsed.Valid && client.ReferralCodeUsed.String != "" {
+					refCode := client.ReferralCodeUsed.String
+					refInfo, err := q.CheckReferralCodeExists(ctx, refCode)
+					if err != nil {
+						log.Printf("[MarkProductSold] Failed to check referral code: %v", err)
+					} else if refInfo.IsExists {
+						log.Printf("[MarkProductSold] Found referrer for client: %s (Type: %s, ID: %s)", refCode, refInfo.UserType, refInfo.ReferrerID)
+						
+						if refInfo.UserType == "RESELLER" && product.ResellerCommissionAmount > 0 {
+							comm, err := q.CreateCommission(ctx, db.CreateCommissionParams{
+								UserID:       uuid.NullUUID{UUID: refInfo.ReferrerID, Valid: true},
+								ProductID:    uuid.NullUUID{UUID: productID, Valid: true},
+								Amount:       product.ResellerCommissionAmount * int64(req.UnitsSold),
+								Status:       "PENDING",
+								UserType:     "RESELLER",
+								ReferralCode: sql.NullString{String: refCode, Valid: true},
+							})
+							if err != nil {
+								log.Printf("[MarkProductSold] Error creating reseller commission: %v", err)
+							} else {
+								if h.Notification != nil {
+									h.Notification.NotifyUser(ctx, refInfo.ReferrerID, "RESELLER",
+										"Komisi Baru Masuk!",
+										fmt.Sprintf("Produk '%s' terjual! Anda mendapatkan komisi sebesar Rp %d.", product.Title, comm.Amount),
+										map[string]string{"type": "commission", "amount": fmt.Sprintf("%d", comm.Amount)})
+								}
+							}
+							
+							if product.MemberCommissionAmount > 0 {
+								reseller, err := q.GetReseller(ctx, refInfo.ReferrerID)
+								if err == nil && reseller.MemberID.Valid {
+									comm, err := q.CreateCommission(ctx, db.CreateCommissionParams{
+										UserID:       reseller.MemberID,
+										ProductID:    uuid.NullUUID{UUID: productID, Valid: true},
+										Amount:       product.MemberCommissionAmount * int64(req.UnitsSold),
+										Status:       "PENDING",
+										UserType:     "MEMBER",
+										ReferralCode: sql.NullString{String: refCode, Valid: true},
+									})
+									if err != nil {
+										log.Printf("[MarkProductSold] Error creating member commission: %v", err)
+									} else {
+										if h.Notification != nil {
+											h.Notification.NotifyUser(ctx, reseller.MemberID.UUID, "MEMBER",
+												"Komisi Referral Baru!",
+												fmt.Sprintf("Produk '%s' terjual! Anda mendapatkan komisi sebesar Rp %d.", product.Title, comm.Amount),
+												map[string]string{"type": "commission", "amount": fmt.Sprintf("%d", comm.Amount)})
+										}
+									}
+								}
+							}
+						} else if refInfo.UserType == "MEMBER" && product.MemberCommissionAmount > 0 {
+							comm, err := q.CreateCommission(ctx, db.CreateCommissionParams{
+								UserID:       uuid.NullUUID{UUID: refInfo.ReferrerID, Valid: true},
+								ProductID:    uuid.NullUUID{UUID: productID, Valid: true},
+								Amount:       product.MemberCommissionAmount * int64(req.UnitsSold),
+								Status:       "PENDING",
+								UserType:     "MEMBER",
+								ReferralCode: sql.NullString{String: refCode, Valid: true},
+							})
+							if err != nil {
+								log.Printf("[MarkProductSold] Error creating member commission: %v", err)
+							} else {
+								if h.Notification != nil {
+									h.Notification.NotifyUser(ctx, refInfo.ReferrerID, "MEMBER",
+										"Komisi Referral Baru!",
+										fmt.Sprintf("Produk '%s' terjual! Anda mendapatkan komisi sebesar Rp %d.", product.Title, comm.Amount),
+										map[string]string{"type": "commission", "amount": fmt.Sprintf("%d", comm.Amount)})
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	} else {
+		log.Printf("[MarkProductSold] No LeadID or MartClientID provided, skipping commission allocation.")
 	}
 
-	h.Queries.UpdateProduct(context.Background(), db.UpdateProductParams{
-		ID:               productID,
-		CategoryID:       product.CategoryID,
-		Title:            product.Title,
-		Description:      product.Description,
-		Price:            product.Price,
-		CommissionAmount: product.CommissionAmount,
-		Status:           newStatus,
-		LocationName:     product.LocationName,
-		Latitude:         product.Latitude,
-		Longitude:        product.Longitude,
-		Province:         product.Province,
-		Regency:          product.Regency,
-		District:         product.District,
-		Village:          product.Village,
-		Stock:            newStock,
+	q.UpdateProduct(ctx, db.UpdateProductParams{
+		ID:                       productID,
+		CategoryID:               product.CategoryID,
+		Title:                    product.Title,
+		Description:              product.Description,
+		Price:                    product.Price,
+		MemberCommissionAmount:   product.MemberCommissionAmount,
+		ResellerCommissionAmount: product.ResellerCommissionAmount,
+		Status:                   newStatus,
+		LocationName:             product.LocationName,
+		Latitude:                 product.Latitude,
+		Longitude:                 product.Longitude,
+		Province:                 product.Province,
+		Regency:                  product.Regency,
+		District:                 product.District,
+		Village:                  product.Village,
+		Stock:                    newStock,
+		CommissionAmount:         product.CommissionAmount,
 	})
+
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return response.Error(c, apperrors.ErrInternalServerError)
+		}
+	}
 
 	return response.Success(c, http.StatusOK, "PRODUCT_UPDATED", nil)
 }
@@ -416,7 +710,8 @@ func compressImage(file *multipart.FileHeader) (*bytes.Buffer, string, error) {
 
 	ext := filepath.Ext(file.Filename)
 	name := file.Filename[0 : len(file.Filename)-len(ext)]
-	newFilename := name + ".jpg"
+	// Add timestamp to ensure uniqueness
+	newFilename := fmt.Sprintf("%s_%d.jpg", name, time.Now().UnixNano())
 
 	return buf, newFilename, nil
 }

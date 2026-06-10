@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import client from '../api/client';
-import ProductCard from '../components/ProductCard';
-import Navbar from '../components/Navbar';
-import CategoryBar from '../components/CategoryBar';
+import client from '../../api/client';
+import ProductCard from '../../components/ProductCard';
+import Navbar from '../../components/Navbar';
+import CategoryBar from '../../components/CategoryBar';
 import {
     ListBulletIcon,
     MapPinIcon,
     Squares2X2Icon
 } from '@heroicons/react/24/outline';
-import locationService, { Regency, Province } from '../services/locationService';
+import locationService, { Regency, Province } from '../../services/locationService';
 
 const HomePage = () => {
     const [products, setProducts] = useState<any[]>([]);
@@ -47,7 +47,10 @@ const HomePage = () => {
             }
 
             const res = await client.get(endpoint);
-            const newProducts = res.data?.message_data || [];
+            const allProducts = res.data?.message_data || [];
+            // Filter out sold out products for public view
+            const newProducts = allProducts.filter((p: any) => (p.stock ?? 0) > 0 && p.status !== 'SOLD');
+
 
             if (isInitial) {
                 setProducts(newProducts);

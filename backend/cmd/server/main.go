@@ -46,19 +46,44 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	_ "github.com/lib/pq"
 	"github.com/user/marketplace-backend/internal/cache"
+	"github.com/user/marketplace-backend/internal/config"
 	"github.com/user/marketplace-backend/internal/database/db"
 	"github.com/user/marketplace-backend/internal/handler"
 	appMiddleware "github.com/user/marketplace-backend/internal/middleware"
+	"github.com/user/marketplace-backend/internal/notification"
 	"github.com/user/marketplace-backend/internal/storage"
 	"github.com/user/marketplace-backend/pkg/apperrors"
+	"github.com/user/marketplace-backend/pkg/dana"
 
 	_ "github.com/user/marketplace-backend/docs" // Import generated docs
 )
 
 func main() {
-	// Load .env file for local development
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, relying on system environment variables")
+	// Auto-detect environment and load appropriate .env file
+	// Priority: APP_ENV env var → fallback to "development"
+	// In Docker production, vars are injected directly (no file needed)
+	appEnv := os.Getenv("APP_ENV")
+	if appEnv == "" {
+		appEnv = "development"
+	}
+
+	envFiles := []string{
+		fmt.Sprintf("../.env.%s", appEnv),    // dari backend/ → project root ✅
+		fmt.Sprintf("../../.env.%s", appEnv), // dari cmd/server/ → project root
+		fmt.Sprintf(".env.%s", appEnv),        // current dir fallback
+		"../.env",                             // dari backend/ → root .env
+		".env",                                // final fallback
+	}
+	loaded := false
+	for _, f := range envFiles {
+		if err := godotenv.Load(f); err == nil {
+			log.Printf("Loaded environment from: %s (APP_ENV=%s)", f, appEnv)
+			loaded = true
+			break
+		}
+	}
+	if !loaded {
+		log.Printf("No .env file found, relying on system environment variables (APP_ENV=%s)", appEnv)
 	}
 
 	// Database connection string
@@ -170,15 +195,49 @@ func main() {
 	// Initialize Queries (assuming sqlc generate has been run)
 	queries := db.New(database)
 
+	// Load configuration
+	appConfig := config.LoadConfig()
+
+	// Initialize DANA client if credentials are configured
+	var danaClient *dana.Client
+	if appConfig.DanaMerchantID != "" && appConfig.DanaMerchantID != "YOUR_DANA_MERCHANT_ID" {
+		log.Println("Initializing DANA API client...")
+		var danaErr error
+		danaClient, danaErr = dana.NewClient(appConfig)
+		if danaErr != nil {
+			log.Printf("WARNING: Failed to initialize DANA Client: %v", danaErr)
+		} else {
+			log.Println("DANA Client initialized successfully")
+		}
+	} else {
+		log.Println("DANA credentials not found in env or set to placeholder, running DANA integration in mock/test mode.")
+	}
+
 	// Initialize Redis Cache
 	redisCache := cache.NewCache()
 
+	// Initialize Notification Service
+	fcmIDPath := os.Getenv("FIREBASE_CREDENTIALS_PATH_ID")
+	if fcmIDPath == "" {
+		fcmIDPath = "configs/firebase-gostar-id.json"
+	}
+	fcmMartPath := os.Getenv("FIREBASE_CREDENTIALS_PATH_MART")
+	if fcmMartPath == "" {
+		fcmMartPath = "configs/firebase-gostar-mart.json"
+	}
+	notificationService, err := notification.NewService(queries, fcmIDPath, fcmMartPath)
+	if err != nil {
+		log.Printf("WARNING: Failed to initialize Notification Service: %v", err)
+	}
+
 	// Initialize Handlers
 	authHandler := handler.NewAuthHandler(queries, database)
-	adminHandler := handler.NewAdminHandler(queries, minioStorage)
-	clientHandler := handler.NewClientHandler(queries)
-	publicHandler := handler.NewPublicHandler(queries, minioStorage, redisCache)
+	adminHandler := handler.NewAdminHandler(queries, minioStorage, database, danaClient, notificationService)
+	clientHandler := handler.NewClientHandler(queries, danaClient, notificationService)
+	publicHandler := handler.NewPublicHandler(queries, minioStorage, redisCache, danaClient, notificationService)
+	martClientHandler := handler.NewMartClientHandler(queries)
 	ogHandler := handler.NewOGHandler(queries)
+	deviceTokenHandler := handler.NewDeviceTokenHandler(queries)
 
 	// Routes
 	e.GET("/", func(c echo.Context) error {
@@ -200,10 +259,14 @@ func main() {
 
 	// Public Routes
 	api.GET("/categories", publicHandler.ListCategories)
+	api.GET("/public/configs", publicHandler.GetPublicConfigs)
+	api.GET("/leaderboard", publicHandler.GetLeaderboard)
 	api.GET("/products", publicHandler.ListProducts)
 	api.GET("/products/:id", publicHandler.GetProduct)
 	api.GET("/track/click", clientHandler.TrackClick)
 	api.POST("/leads", clientHandler.SubmitLead)
+	api.POST("/public/dana/payment-callback", publicHandler.DanaPaymentCallback)
+	api.POST("/public/simulate-payment/:invoiceNumber", publicHandler.SimulatePayment)
 
 	// Open Graph Route (for social media crawlers)
 	api.GET("/og/product/:id", ogHandler.GetProductOG)
@@ -214,10 +277,24 @@ func main() {
 	api.GET("/districts/:code", publicHandler.GetDistricts)
 	api.GET("/villages/:code", publicHandler.GetVillages)
 
+	// Mart Client Routes
+	api.POST("/mart-client/login/google", martClientHandler.LoginGoogle)
+	api.PUT("/mart-client/profile", martClientHandler.CompleteProfile)
+	api.POST("/mart-client/favorites/toggle", martClientHandler.ToggleFavorite)
+	api.GET("/mart-client/favorites", martClientHandler.ListFavorites)
+	api.POST("/mart-client/device-token", deviceTokenHandler.UpsertMartDeviceToken)
+	api.DELETE("/mart-client/device-token", deviceTokenHandler.DeleteMartDeviceToken)
+
 	// Auth Routes
 	auth := api.Group("/auth")
 	auth.POST("/login/admin", authHandler.AdminLogin)
 	auth.POST("/login/reseller", authHandler.ResellerLogin)
+	auth.POST("/login/member", authHandler.MemberLogin)
+	auth.POST("/register/member", publicHandler.RegisterMember)
+	auth.POST("/register/reseller", publicHandler.RegisterReseller)
+	auth.GET("/verify-referral/:code", publicHandler.VerifyReferralCode)
+	auth.GET("/verify-dana-phone/:phone", publicHandler.VerifyDanaPhone)
+	auth.GET("/registration-status/:userId", publicHandler.GetRegistrationStatus)
 
 	// Admin Routes (Protected)
 	adminGroup := api.Group("/admin")
@@ -228,15 +305,23 @@ func main() {
 	adminGroup.POST("/products/assets", adminHandler.UploadAsset)
 	adminGroup.DELETE("/products/assets/:id", adminHandler.DeleteAsset)
 	adminGroup.GET("/dashboard", adminHandler.GetDashboard)
+	adminGroup.GET("/configs", adminHandler.ListSystemConfigs)
+	adminGroup.PUT("/configs", adminHandler.UpdateSystemConfigs)
 	adminGroup.POST("/resellers", adminHandler.CreateReseller)
 	adminGroup.GET("/resellers", adminHandler.ListResellers)
 	adminGroup.GET("/resellers/:id", adminHandler.GetReseller)
 	adminGroup.PUT("/resellers/:id", adminHandler.UpdateReseller)
+	adminGroup.POST("/members", adminHandler.CreateMember)
+	adminGroup.GET("/members", adminHandler.ListMembers)
+	adminGroup.GET("/members/:id", adminHandler.GetMember)
+	adminGroup.PUT("/members/:id", adminHandler.UpdateMember)
+	adminGroup.GET("/members/:id/resellers", adminHandler.ListMemberResellers)
 	adminGroup.GET("/products", adminHandler.ListAllProducts)
 	adminGroup.GET("/products/:id", adminHandler.GetProduct)
 	adminGroup.PUT("/products/:id", adminHandler.UpdateProduct)
 	adminGroup.DELETE("/products/:id", adminHandler.DeleteProduct)
 	adminGroup.GET("/products/:id/leads", adminHandler.GetProductLeads)
+	adminGroup.GET("/mart-clients", adminHandler.ListMartClients)
 	adminGroup.POST("/products/:id/sold", adminHandler.MarkProductSold)
 	adminGroup.POST("/payouts", adminHandler.CreatePayout)
 	adminGroup.GET("/payouts", adminHandler.ListPayouts)
@@ -244,12 +329,20 @@ func main() {
 	// Client/Reseller Routes (Protected)
 	clientGroup := api.Group("/client")
 	clientGroup.Use(appMiddleware.JWTMiddleware)
-	clientGroup.Use(appMiddleware.RoleMiddleware("RESELLER", "CLIENT"))
+	clientGroup.Use(appMiddleware.RoleMiddleware("RESELLER", "MEMBER", "CLIENT"))
 
 	clientGroup.GET("/products/:id/share", clientHandler.GetShareURL)
 	clientGroup.GET("/products/:id/analytics", clientHandler.GetMyAnalytics)
 	clientGroup.GET("/stats", clientHandler.GetStats)
 	clientGroup.GET("/payouts", clientHandler.GetMyPayouts)
+	clientGroup.GET("/commissions", clientHandler.GetMyCommissions)
+	clientGroup.POST("/track-share", clientHandler.TrackShare)
+	clientGroup.GET("/profile", clientHandler.GetProfile)
+	clientGroup.PUT("/profile", clientHandler.UpdateProfile)
+	clientGroup.POST("/verify-phone", clientHandler.VerifyPhone)
+	clientGroup.POST("/withdraw", clientHandler.RequestWithdrawal)
+	clientGroup.POST("/device-token", deviceTokenHandler.UpsertDeviceToken)
+	clientGroup.DELETE("/device-token", deviceTokenHandler.DeleteDeviceToken)
 
 	// Start server
 	port := os.Getenv("PORT")

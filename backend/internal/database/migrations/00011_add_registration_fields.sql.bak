@@ -1,0 +1,11 @@
+ALTER TABLE members
+ADD COLUMN username VARCHAR(50),
+ADD COLUMN nik VARCHAR(20),
+ADD COLUMN profile_image TEXT,
+ADD COLUMN ktp_image TEXT;
+
+ALTER TABLE resellers
+ADD COLUMN username VARCHAR(50),
+ADD COLUMN nik VARCHAR(20),
+ADD COLUMN profile_image TEXT,
+ADD COLUMN ktp_image TEXT;

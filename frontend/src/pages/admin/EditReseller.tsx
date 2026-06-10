@@ -11,11 +11,13 @@ import {
     BanknotesIcon,
     PhotoIcon,
     CheckCircleIcon,
-    XMarkIcon
+    XMarkIcon,
+    FingerPrintIcon,
+    AtSymbolIcon
 } from '@heroicons/react/24/outline';
-import client from '../api/client';
-import { formatRelativeTime } from '../utils/date';
-import { getImageUrl } from '../utils/image';
+import client from '../../api/client';
+import { formatRelativeTime } from '../../utils/date';
+import { getImageUrl } from '../../utils/image';
 
 const EditReseller = () => {
     const navigate = useNavigate();
@@ -24,11 +26,15 @@ const EditReseller = () => {
     const [saving, setSaving] = useState(false);
     const [reseller, setReseller] = useState<any>(null);
     const [stats, setStats] = useState<any>(null);
+    const [sales, setSales] = useState<any[]>([]);
     const [formData, setFormData] = useState({
         name: '',
         email: '',
         phone: '',
-        password: ''
+        password: '',
+        username: '',
+        nik: '',
+        status: 'ACTIVE'
     });
 
     // Payout relates
@@ -63,7 +69,7 @@ const EditReseller = () => {
             });
             if (res.data && res.data.message_data) {
                 // Filter payouts for this reseller
-                const filtered = res.data.message_data.filter((p: any) => p.reseller_id === id);
+                const filtered = res.data.message_data.filter((p: any) => p.user_id === id && p.user_type === 'RESELLER');
                 setPayouts(filtered);
             }
         } catch (err) {
@@ -83,11 +89,15 @@ const EditReseller = () => {
 
                 setReseller(resellerData);
                 setStats(statsData);
+                setSales(res.data.message_data.sales || []);
                 setFormData({
                     name: resellerData.name || '',
                     email: resellerData.email?.String || '',
                     phone: resellerData.phone || '',
-                    password: ''
+                    password: '',
+                    username: resellerData.username?.String || '',
+                    nik: resellerData.nik?.String || '',
+                    status: resellerData.status || 'ACTIVE'
                 });
             }
         } catch (err) {
@@ -106,7 +116,10 @@ const EditReseller = () => {
             const token = localStorage.getItem('token');
             const updateData: any = {
                 name: formData.name,
-                phone: formData.phone
+                phone: formData.phone,
+                username: formData.username,
+                nik: formData.nik,
+                status: formData.status
             };
 
             // Only include email if it's changed
@@ -128,6 +141,29 @@ const EditReseller = () => {
         } catch (err: any) {
             console.error('Failed to update reseller', err);
             alert(err.response?.data?.message || 'Failed to update reseller');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleStatusUpdate = async (newStatus: string) => {
+        setSaving(true);
+        try {
+            const token = localStorage.getItem('token');
+            await client.put(`/admin/resellers/${id}`, {
+                name: formData.name,
+                phone: formData.phone,
+                email: formData.email,
+                username: formData.username,
+                nik: formData.nik,
+                status: newStatus
+            }, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            alert(`Reseller status updated to ${newStatus}`);
+            loadReseller();
+        } catch (err: any) {
+            alert(err.response?.data?.message || 'Failed to update status');
         } finally {
             setSaving(false);
         }
@@ -232,15 +268,56 @@ const EditReseller = () => {
                         {/* Reseller Info Card */}
                         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
                             <div className="flex flex-col items-center text-center">
-                                <div className="w-24 h-24 bg-gradient-to-br from-green-400 to-green-600 rounded-full flex items-center justify-center text-white font-black text-3xl uppercase shadow-lg mb-4">
-                                    {reseller.name?.charAt(0) || '?'}
-                                </div>
+                                {reseller.profile_image?.String ? (
+                                    <img
+                                        src={getImageUrl(reseller.profile_image.String)}
+                                        alt="Profile"
+                                        className="w-24 h-24 rounded-full object-cover shadow-lg mb-4 cursor-zoom-in border-2 border-gray-100"
+                                        onClick={() => setSelectedProofUrl(getImageUrl(reseller.profile_image.String))}
+                                    />
+                                ) : (
+                                    <div className="w-24 h-24 bg-gradient-to-br from-green-400 to-green-600 rounded-full flex items-center justify-center text-white font-black text-3xl uppercase shadow-lg mb-4">
+                                        {reseller.name?.charAt(0) || '?'}
+                                    </div>
+                                )}
                                 <h3 className="text-xl font-bold text-gray-900 mb-1">{reseller.name}</h3>
-                                <p className="text-sm text-gray-500 mb-2">{reseller.email?.String || 'No email'}</p>
+                                <div className="mt-2 flex gap-2">
+                                    {reseller.status === 'ACTIVE' && <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-[10px] font-black uppercase tracking-wider">Active</span>}
+                                    {reseller.status === 'BLOCKED' && <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-[10px] font-black uppercase tracking-wider">Blocked</span>}
+                                </div>
+                                <p className="text-sm text-gray-500 mt-3">{reseller.email?.String || 'No email'}</p>
                                 <p className="text-sm text-gray-600 font-medium">{reseller.phone}</p>
-                                <div className="mt-4 flex items-center gap-2 text-xs text-gray-500">
-                                    <CalendarIcon className="w-4 h-4" />
-                                    Joined {formatRelativeTime(reseller.created_at)}
+                                <div className="mt-4 flex flex-col items-center gap-2">
+                                    {reseller.member_name?.String && (
+                                        <div className="flex items-center gap-1.5 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black uppercase tracking-wider border border-indigo-100">
+                                            <UserCircleIcon className="w-3.5 h-3.5" />
+                                            Leader: {reseller.member_name.String}
+                                        </div>
+                                    )}
+                                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                                        <CalendarIcon className="w-4 h-4" />
+                                        Joined {formatRelativeTime(reseller.created_at)}
+                                    </div>
+                                </div>
+                                <div className="mt-6 flex flex-col w-full gap-3">
+                                    {reseller.status !== 'ACTIVE' && (
+                                        <button
+                                            onClick={() => handleStatusUpdate('ACTIVE')}
+                                            disabled={saving}
+                                            className="w-full py-3 bg-green-600 text-white rounded-xl font-bold text-sm hover:bg-green-700 transition-all shadow-md shadow-green-100 disabled:opacity-50"
+                                        >
+                                            {saving ? 'Processing...' : 'Activate Reseller'}
+                                        </button>
+                                    )}
+                                    {reseller.status !== 'BLOCKED' && (
+                                        <button
+                                            onClick={() => handleStatusUpdate('BLOCKED')}
+                                            disabled={saving}
+                                            className="w-full py-3 bg-red-100 text-red-600 rounded-xl font-bold text-sm hover:bg-red-200 transition-all disabled:opacity-50"
+                                        >
+                                            {saving ? 'Processing...' : 'Block Reseller'}
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -340,9 +417,41 @@ const EditReseller = () => {
                                         required
                                         value={formData.name}
                                         onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-gray-900 font-medium"
-                                        placeholder="Enter reseller name"
+                                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-gray-900 font-medium"
                                     />
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    {/* Username */}
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-2">
+                                            <div className="flex items-center gap-2">
+                                                <AtSymbolIcon className="w-5 h-5 text-gray-400" />
+                                                Username
+                                            </div>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={formData.username}
+                                            onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                                        />
+                                    </div>
+                                    {/* NIK */}
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-2">
+                                            <div className="flex items-center gap-2">
+                                                <FingerPrintIcon className="w-5 h-5 text-gray-400" />
+                                                NIK (KTP Number)
+                                            </div>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={formData.nik}
+                                            onChange={(e) => setFormData({ ...formData, nik: e.target.value })}
+                                            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                                        />
+                                    </div>
                                 </div>
 
                                 {/* Email */}
@@ -357,7 +466,7 @@ const EditReseller = () => {
                                         type="email"
                                         value={formData.email}
                                         onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-gray-900 font-medium"
+                                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-gray-900 font-medium"
                                         placeholder="email@example.com"
                                     />
                                     <p className="text-xs text-gray-500 mt-1">Leave blank to keep current email</p>
@@ -376,8 +485,7 @@ const EditReseller = () => {
                                         required
                                         value={formData.phone}
                                         onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-gray-900 font-medium"
-                                        placeholder="08123456789"
+                                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-gray-900 font-medium"
                                     />
                                 </div>
 
@@ -393,24 +501,72 @@ const EditReseller = () => {
                                         type="password"
                                         value={formData.password}
                                         onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-gray-900 font-medium"
+                                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all text-gray-900 font-medium"
                                         placeholder="Leave blank to keep current password"
                                     />
                                     <p className="text-xs text-gray-500 mt-1">Only fill this if you want to change the password</p>
                                 </div>
 
+                                {reseller.member_name?.String && (
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-2">Member (Leader)</label>
+                                        <div className="px-4 py-3 bg-indigo-50 border border-indigo-100 rounded-xl text-indigo-700 font-bold flex items-center justify-between">
+                                            <span>{reseller.member_name.String}</span>
+                                            <span className="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded uppercase tracking-tighter">Active Leader</span>
+                                        </div>
+                                        <p className="text-xs text-gray-500 mt-1">This reseller is managed by the leader above</p>
+                                    </div>
+                                )}
+
                                 {/* Referral Code (Read Only) */}
                                 <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                                        Referral Code
-                                    </label>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Referral Code</label>
                                     <div className="px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-700 font-mono font-bold">
                                         {reseller.referral_code?.String || reseller.referral_code || 'No Code'}
                                     </div>
                                     <p className="text-xs text-gray-500 mt-1">Referral code cannot be changed</p>
                                 </div>
 
-                                {/* Action Buttons */}
+                                {/* Identity Images */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-3">Profile Photo</label>
+                                        <div className="relative aspect-square rounded-2xl overflow-hidden border-2 border-gray-100 bg-gray-50 shadow-inner">
+                                            {reseller.profile_image?.String ? (
+                                                <img
+                                                    src={getImageUrl(reseller.profile_image.String)}
+                                                    alt="Profile"
+                                                    className="w-full h-full object-cover cursor-zoom-in hover:scale-105 transition-transform"
+                                                    onClick={() => setSelectedProofUrl(getImageUrl(reseller.profile_image.String))}
+                                                />
+                                            ) : (
+                                                <div className="w-full h-full flex flex-col items-center justify-center text-gray-300">
+                                                    <PhotoIcon className="w-12 h-12" />
+                                                    <span className="text-[10px] font-bold mt-2 uppercase tracking-widest">No Profile Photo</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-3">KTP Image</label>
+                                        <div className="relative aspect-[3/2] rounded-2xl overflow-hidden border-2 border-gray-100 bg-gray-50 shadow-inner">
+                                            {reseller.ktp_image?.String ? (
+                                                <img
+                                                    src={getImageUrl(reseller.ktp_image.String)}
+                                                    alt="KTP"
+                                                    className="w-full h-full object-cover cursor-zoom-in hover:scale-105 transition-transform"
+                                                    onClick={() => setSelectedProofUrl(getImageUrl(reseller.ktp_image.String))}
+                                                />
+                                            ) : (
+                                                <div className="w-full h-full flex flex-col items-center justify-center text-gray-300">
+                                                    <PhotoIcon className="w-12 h-12" />
+                                                    <span className="text-[10px] font-bold mt-2 uppercase tracking-widest">No KTP Photo</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <div className="flex gap-4 pt-4 border-t border-gray-100">
                                     <button
                                         type="button"
@@ -431,6 +587,56 @@ const EditReseller = () => {
                                     </button>
                                 </div>
                             </form>
+                        </div>
+                        
+                        {/* Sales History */}
+                        <div className="mt-8 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                                <h2 className="text-xl font-bold text-gray-900">Sales History (Sold Products)</h2>
+                                <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-black uppercase tracking-wider">
+                                    {sales.length} Items Sold
+                                </span>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Product Name</th>
+                                            <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Commission</th>
+                                            <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Sold Date</th>
+                                            <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {sales.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={4} className="px-6 py-8 text-center text-gray-500 italic">No sales recorded yet.</td>
+                                            </tr>
+                                        ) : (
+                                            sales.map((sale) => (
+                                                <tr key={sale.id}>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-bold">
+                                                        {sale.product_title}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-black">
+                                                        {formatPrice(sale.amount)}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-medium">
+                                                        {new Date(sale.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                                            sale.status === 'PAID' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'
+                                                        }`}>
+                                                            {sale.status}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
 
                         {/* Payout History */}

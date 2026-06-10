@@ -1,23 +1,29 @@
 -- name: CreatePayout :one
 INSERT INTO payouts (
-    reseller_id, amount, proof_object_key, notes
+    user_id, amount, proof_object_key, notes, user_type
 ) VALUES (
-    $1, $2, $3, $4
+    $1, $2, $3, $4, $5
 )
 RETURNING *;
 
--- name: ListPayoutsByReseller :many
+-- name: ListPayoutsByUser :many
 SELECT * FROM payouts
-WHERE reseller_id = $1
+WHERE user_id = $1 AND user_type = $2
 ORDER BY created_at DESC;
 
 -- name: ListAllPayouts :many
-SELECT p.*, u.name as reseller_name
+SELECT p.*, COALESCE(r.name, m.name, 'Unknown') as user_name
 FROM payouts p
-JOIN users u ON p.reseller_id = u.id
+LEFT JOIN resellers r ON p.user_id = r.id AND p.user_type = 'RESELLER'
+LEFT JOIN members m ON p.user_id = m.id AND p.user_type = 'MEMBER'
 ORDER BY p.created_at DESC;
 
--- name: GetTotalPayoutByReseller :one
+-- name: GetTotalPayoutByUser :one
 SELECT COALESCE(SUM(amount), 0)::bigint as total_paid
 FROM payouts
-WHERE reseller_id = $1;
+WHERE user_id = $1 AND user_type = $2 AND status != 'FAILED';
+
+-- name: GetPayoutCountByUserAndDate :one
+SELECT COUNT(*) FROM payouts
+WHERE user_id = $1 AND user_type = $2 AND status != 'FAILED' AND created_at >= $3;
+

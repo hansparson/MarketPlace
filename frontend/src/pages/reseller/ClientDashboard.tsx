@@ -14,8 +14,8 @@ import {
     PhotoIcon,
     ArrowPathIcon
 } from '@heroicons/react/24/outline';
-import client from '../api/client';
-import { getImageUrl } from '../utils/image';
+import client from '../../api/client';
+import { getImageUrl } from '../../utils/image';
 
 const ClientDashboard = () => {
     const navigate = useNavigate();
@@ -36,7 +36,7 @@ const ClientDashboard = () => {
         const token = localStorage.getItem('token');
         const role = localStorage.getItem('role');
 
-        if (!token || (role !== 'RESELLER' && role !== 'CLIENT')) {
+        if (!token || (role !== 'RESELLER' && role !== 'MEMBER' && role !== 'CLIENT')) {
             navigate('/login');
             return;
         }
@@ -131,7 +131,7 @@ const ClientDashboard = () => {
                             </div>
                             <div>
                                 <h1 className="text-xl font-black text-gray-900 tracking-tight">GOSTAR <span className="text-blue-600">MART</span></h1>
-                                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-[0.2em] leading-none">Reseller Panel</p>
+                                <p className="text-[10px] font-bold text-blue-600 uppercase tracking-[0.2em] leading-none">{localStorage.getItem('role')} Panel</p>
                             </div>
                         </div>
 
@@ -217,6 +217,49 @@ const ClientDashboard = () => {
 
                 {activeTab === 'products' ? (
                     <div className="space-y-8">
+                        {/* Leads Section - NEW */}
+                        <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100">
+                            <div className="flex items-center justify-between mb-6">
+                                <div>
+                                    <h2 className="text-xl font-black text-gray-900">Calon Pembeli (Leads)</h2>
+                                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">Orang yang mengklik link Anda dan mengisi data</p>
+                                </div>
+                                <div className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl text-xs font-black">
+                                    {stats.recent_activities?.filter((a: any) => a.activity_type === 'LEAD').length || 0} LEADS
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {stats.recent_activities?.filter((a: any) => a.activity_type === 'LEAD').map((lead: any, idx: number) => (
+                                    <div key={idx} className="p-5 bg-gray-50 rounded-3xl border border-gray-100 hover:border-blue-200 transition-all group">
+                                        <div className="flex justify-between items-start mb-3">
+                                            <div>
+                                                <p className="font-black text-gray-900">{lead.visitor_name}</p>
+                                                <p className="text-xs text-gray-500 font-bold">{lead.visitor_phone}</p>
+                                            </div>
+                                            <a 
+                                                href={`https://wa.me/${lead.visitor_phone.replace(/\D/g, '').startsWith('0') ? '62' + lead.visitor_phone.replace(/\D/g, '').slice(1) : lead.visitor_phone.replace(/\D/g, '')}`}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="p-2 bg-green-500 text-white rounded-xl shadow-lg shadow-green-100 hover:scale-110 transition-transform"
+                                            >
+                                                <ChatBubbleLeftRightIcon className="w-4 h-4" />
+                                            </a>
+                                        </div>
+                                        <div className="pt-3 border-t border-gray-200/50">
+                                            <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">Tertarik Produk:</p>
+                                            <p className="text-xs font-bold text-gray-700 line-clamp-1">{lead.product_title}</p>
+                                        </div>
+                                    </div>
+                                ))}
+                                {(!stats.recent_activities || stats.recent_activities.filter((a: any) => a.activity_type === 'LEAD').length === 0) && (
+                                    <div className="col-span-full py-10 text-center bg-gray-50/50 rounded-3xl border border-dashed border-gray-200">
+                                        <p className="text-sm font-bold text-gray-400">Belum ada calon pembeli yang terdaftar.</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
                         {/* Search */}
                         <div className="bg-white p-4 rounded-3xl shadow-sm border border-gray-100">
                             <div className="relative">
@@ -264,7 +307,12 @@ const ClientDashboard = () => {
 
                                                 <div className="bg-blue-50 rounded-2xl p-4 mb-5 border border-blue-100/50">
                                                     <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-1">Potensi Komisi</p>
-                                                    <p className="text-xl font-black text-blue-700">{formatPrice(product.commission_amount)}</p>
+                                                    <p className="text-xl font-black text-blue-700">
+                                                        {localStorage.getItem('role') === 'MEMBER'
+                                                            ? formatPrice(product.member_commission_amount || 0)
+                                                            : formatPrice(product.reseller_commission_amount || 0)
+                                                        }
+                                                    </p>
                                                 </div>
 
                                                 <button
