@@ -143,8 +143,14 @@ test: ## Run unit tests
 	cd backend && go test -v ./...
 
 audit: ## Run quality control checks
-	@echo "🔍 Running audit..."
+	@echo "🔍 Running backend audit..."
 	cd backend && go mod verify
 	cd backend && go vet ./...
 	cd backend && go run honnef.co/go/tools/cmd/staticcheck@latest -checks="all,-ST1000,-ST1003,-ST1020,-ST1021,-ST1023,-S1017,-SA1019,-SA9003" ./...
 	cd backend && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	@echo "🔍 Running frontend audit..."
+	cd frontend && npx tsc --noEmit
+	cd frontend && (npm audit || echo "⚠️ Warning: Frontend dependencies have vulnerability issues")
+	@echo "🔍 Running mobile audit..."
+	cd gostar-id && (flutter analyze || echo "⚠️ Warning: gostar-id has lint issues")
+	cd gostar_mart && (flutter analyze || echo "⚠️ Warning: gostar_mart has lint issues")
